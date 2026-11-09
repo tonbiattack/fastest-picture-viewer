@@ -20,3 +20,8 @@ Andoroid だけでよい
 
 ## 想定
 - SDカードに大量の画像がある
+## 設計資料
+- [高速画像ビューア仕様書](docs/specification.md)
+- [実装Issue一覧](https://github.com/tonbiattack/private-fastest-picture-viewer/issues)
+
+最優先事項: フォルダ一覧をRoomに永続保存し、画面遷移・他アプリからの復帰・プロセス再生成でも読み込みによる空白を発生させない。
