@@ -5,9 +5,7 @@ Androidネイティブアプリを実装してください。
 
 ## アプリ名
 
-private-fastest-picture-viewer
-
-※ private は開発用の名前なので、実装上は特に意味はありません。
+fastest-picture-viewer
 
 ## 目的
 
