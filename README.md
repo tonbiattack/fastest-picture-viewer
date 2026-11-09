@@ -1,8 +1,17 @@
 # fastest-picture-viewer
 
-**Android向け・表示速度最優先の画像ビューア**（開発準備中）
+**OPPO Reno13 A専用・表示速度最優先の個人用Android画像ビューア**（MVP実装済み・実機検証待ち）
 
 内部ストレージやSDカードに保存された大量の画像を、フォルダ単位で素早く閲覧することを目指すアプリです。多機能化よりも、**起動・復帰・画面遷移のたびに待たされないこと**を優先します。
+
+## 最終ゴール・配布方針
+
+- **唯一の利用対象:** 個人所有の **OPPO Reno13 A**。端末のAndroidバージョン・ColorOSバージョン・空き容量・SDカード使用有無はADB/実機で確認する
+- **完成条件:** 自分のスマホにAPKをインストールし、普段使う画像フォルダをストレスなく閲覧でき、起動・復帰・戻る操作で一覧が不必要に消えない
+- **配布:** Google Playストアには公開しない。一般ユーザー向けの互換性・審査・配布基盤は作らない
+- **導入・更新:** Windows PCからUSBデバッグ + ADBでAPKをインストール/上書きする。長期利用は固定のapplicationIdと安全に保管した専用署名鍵で署名したAPKを使う（鍵・パスワードはGitにコミットしない）
+- **検証:** OPPO Reno13 Aでの実機確認を必須とし、エミュレーターや大規模なE2E基盤は必要時のみ。実装・Gradleテスト・APK生成・ADB導入・ログ収集は可能な限りAIで自動化する
+- **範囲外:** Playストア申請、ストア向け説明文、公開用プライバシーポリシー、広告・課金・アカウント、機種横断の網羅的動作保証
 
 ## 解決したい課題
 
@@ -59,7 +68,7 @@ P0 イシュー (#1〜#4) の MVP 実装済み (Kotlin / Compose / Room / Coil /
 - 状態復元: ViewModel + SavedStateHandle でフォルダ・スクロール・閲覧位置を復元
 - テスト: Robolectric による Room DAO 検証、差分計算・ViewModel の単体テスト (`gradlew :app:testDebugUnitTest`)
 
-実機での検証 (SDカード・2,000枚以上・性能計測) は今後のタスク。
+PR #8 は未マージ。OPPO Reno13 A上での実機検証、画像2,000枚以上での性能計測、SDカードを利用している場合の検証は今後のタスク。
 
 ## プライバシー
 
@@ -76,3 +85,20 @@ gradlew :app:assembleDebug
 ```
 
 Android SDK (compileSdk 36) と JDK 17 以上が必要です。SDK の場所が標準でない場合は `local.properties` に `sdk.dir` を設定してください。
+
+## OPPO Reno13 Aへの導入・更新（Windows PowerShell）
+
+PR #8 が未マージの間は `feature/p0-mvp` ブランチを利用する。
+
+```powershell
+git fetch origin
+git switch feature/p0-mvp
+.\gradlew.bat :app:testDebugUnitTest
+.\gradlew.bat :app:assembleDebug
+adb devices
+adb install -r .\app\build\outputs\apk\debug\app-debug.apk
+```
+
+※ 上記は**開発・初回確認用のデバッグAPK**。上書きには同じ `applicationId` と署名鍵が必要。別の鍵に変更すると通常は上書きできず、アンインストールはアプリ内データ/キャッシュを消すため、個人利用の本番運用前に固定のリリース署名を整備する。実機側で開発者向けオプションとUSBデバッグを許可する。端末のAndroid/ColorOSバージョン、USB接続・権限の挙動を確認して記録する。
+
+[個人端末向け受け入れ手順](docs/specification.md#9-個人端末での受け入れテスト)
