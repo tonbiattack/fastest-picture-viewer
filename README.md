@@ -51,10 +51,28 @@
 
 ## 開発状況
 
-現在は仕様策定・Issue整理の段階です。基本機能は未実装です。
+P0 イシュー (#1〜#4) の MVP 実装済み (Kotlin / Compose / Room / Coil / MediaStore)。
 
-実装は [#1 Androidアプリ基盤](https://github.com/tonbiattack/fastest-picture-viewer/issues/1) → [#2 永続キャッシュ](https://github.com/tonbiattack/fastest-picture-viewer/issues/2) → [#3 一覧保持](https://github.com/tonbiattack/fastest-picture-viewer/issues/3) → [#4 状態復元](https://github.com/tonbiattack/fastest-picture-viewer/issues/4) を優先します。
+- フォルダ一覧 (Room キャッシュ即表示・更新日時降順) / フォルダ内グリッド (ファイル名昇順) / 画像ビューア (ページャ・ズーム)
+- 権限: Android 14 部分アクセスも含めたレベル判定。権限拒否時はキャッシュを消さず案内表示
+- 同期: 起動・復帰時の差分走査 + 手動更新による完全走査 (削除反映)。ボリューム単位の失敗時は当該ボリュームのキャッシュを保持
+- 状態復元: ViewModel + SavedStateHandle でフォルダ・スクロール・閲覧位置を復元
+- テスト: Robolectric による Room DAO 検証、差分計算・ViewModel の単体テスト (`gradlew :app:testDebugUnitTest`)
+
+実機での検証 (SDカード・2,000枚以上・性能計測) は今後のタスク。
 
 ## プライバシー
 
 端末内の画像をオフラインで閲覧する方針です。画像や閲覧履歴を外部サーバへ送信する機能は設けません。
+
+## ビルド・テスト
+
+```bash
+# 単体テスト (Robolectric / 純粋ロジック)
+gradlew :app:testDebugUnitTest
+
+# デバッグ APK のビルド
+gradlew :app:assembleDebug
+```
+
+Android SDK (compileSdk 36) と JDK 17 以上が必要です。SDK の場所が標準でない場合は `local.properties` に `sdk.dir` を設定してください。

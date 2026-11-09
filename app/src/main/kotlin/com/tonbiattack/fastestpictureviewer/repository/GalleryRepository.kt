@@ -1,0 +1,41 @@
+package com.tonbiattack.fastestpictureviewer.repository
+
+import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
+import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
+import com.tonbiattack.fastestpictureviewer.data.ImageItem
+import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
+
+/**
+ * ギャラリーデータへのアクセス。UI はこの interface にのみ依存してテストしやすくする。
+ *
+ * 一覧はすべて Room (Flow) を単一の真実のソースとし、同期は背景で行う (stale-while-revalidate)。
+ */
+interface GalleryRepository {
+
+    /** フォルダ一覧 (集計行) を購読する */
+    fun observeFolderSummaries(): Flow<List<FolderSummaryRow>>
+
+    /** フォルダ代表サムネイルを購読する */
+    fun observeRepresentatives(): Flow<List<RepresentativeImageRow>>
+
+    /** 指定フォルダの画像一覧を購読する */
+    fun observeImages(folderKey: String): Flow<List<ImageItem>>
+
+    /** 同期実行状態を購読する */
+    val syncStatus: StateFlow<SyncStatus>
+
+    /**
+     * MediaStore → Room の同期を実行する。メインスレッドから呼んでもよい (内部で IO に切る)。
+     *
+     * @param canDelete 完全アクセスで削除判定付き同期が可能か (部分アクセスでは false を渡す)
+     */
+    suspend fun sync(mode: SyncMode, canDelete: Boolean): SyncResult
+
+    /** お気に入りを登録/解除する (ファイル本体は変更しない) */
+    suspend fun setFavorite(itemId: String, favorite: Boolean)
+
+    /** お気に入り一覧を購読する */
+    fun observeFavorites(): Flow<List<FavoriteImageEntity>>
+}
