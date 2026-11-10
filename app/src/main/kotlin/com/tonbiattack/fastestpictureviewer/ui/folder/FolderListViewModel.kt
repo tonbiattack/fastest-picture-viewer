@@ -6,9 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.tonbiattack.fastestpictureviewer.core.util.FolderNames
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 
@@ -59,31 +62,44 @@ class FolderListViewModel(
     private val startedAtNanos = System.nanoTime()
     private var firstFrameLogged = false
 
-    /** フォルダ集計 + 代表サムネイル + 同期状態を合成する */
-    val uiState: StateFlow<FolderListUiState> = combine(
-        repository.observeFolderSummaries(),
-        // 代表サムネイルの到着を待たず、フォルダ一覧を先に表示する
-        repository.observeRepresentatives().onStart { emit(emptyList()) },
-        repository.syncStatus
-    ) { summaries, representatives, status ->
-        if (!firstFrameLogged && summaries.isNotEmpty()) {
-            firstFrameLogged = true
-            val elapsedMs = (System.nanoTime() - startedAtNanos) / 1_000_000
-            println("FPV-Perf: folder list first frame: ${elapsedMs}ms, folders=${summaries.size}")
-        }
-        FolderListUiState(
-            isLoadingFirstFrame = false,
-            folders = summaries.toUiModels(representatives),
-            isSyncing = status.isRunning,
-            isInitialScan = status.isInitialScan,
-            errorMessage = status.errorMessage
-        )
-    }.stateIn(
-        scope = viewModelScope,
-        // 設定画面離脱後も短時間はホットキープし、即戻るケースでの再発行を避ける
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = FolderListUiState(isLoadingFirstFrame = true)
-    )
+    /**
+     * フォルダ集計 + 代表サムネイル + 同期状態を合成する。
+     *
+     * 除外設定が変わったら内側の Room クエリを購読し直す。Room の無効化通知だけに頼らず、
+     * 解除直後に戻ってきた場合でも最新の一覧を確実に取得するための保険。
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val uiState: StateFlow<FolderListUiState> =
+        repository.observeExcludedFolders()
+            .map { Unit }
+            .onStart { emit(Unit) }
+            .flatMapLatest {
+                combine(
+                    repository.observeFolderSummaries(),
+                    // 代表サムネイルの到着を待たず、フォルダ一覧を先に表示する
+                    repository.observeRepresentatives().onStart { emit(emptyList()) },
+                    repository.syncStatus
+                ) { summaries, representatives, status ->
+                    if (!firstFrameLogged && summaries.isNotEmpty()) {
+                        firstFrameLogged = true
+                        val elapsedMs = (System.nanoTime() - startedAtNanos) / 1_000_000
+                        println("FPV-Perf: folder list first frame: ${elapsedMs}ms, folders=${summaries.size}")
+                    }
+                    FolderListUiState(
+                        isLoadingFirstFrame = false,
+                        folders = summaries.toUiModels(representatives),
+                        isSyncing = status.isRunning,
+                        isInitialScan = status.isInitialScan,
+                        errorMessage = status.errorMessage
+                    )
+                }
+            }
+            .stateIn(
+                scope = viewModelScope,
+                // 設定画面離脱後も短時間はホットキープし、即戻るケースでの再発行を避ける
+                started = SharingStarted.WhileSubscribed(5_000),
+                initialValue = FolderListUiState(isLoadingFirstFrame = true)
+            )
 
     /** 同期エラーメッセージは直近状態として表示する (誤操作で消えやすいランダム消去はしない) */
 

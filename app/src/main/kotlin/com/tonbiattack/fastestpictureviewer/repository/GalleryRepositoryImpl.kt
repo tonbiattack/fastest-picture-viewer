@@ -13,6 +13,7 @@ import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
 import com.tonbiattack.fastestpictureviewer.data.SyncStateEntity
 import com.tonbiattack.fastestpictureviewer.data.VolumeSyncStateEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -64,7 +65,8 @@ class GalleryRepositoryImpl(
         excludedFolderDao.observeAll()
 
     override suspend fun excludeFolder(volumeName: String, relativePath: String) {
-        withContext(Dispatchers.IO) {
+        // 画面を離れた直後でも設定変更が失われないよう、キャンセル不可で書き込む
+        withContext(Dispatchers.IO + NonCancellable) {
             excludedFolderDao.add(
                 ExcludedFolderEntity(
                     folderKey = FolderKeys.create(volumeName, relativePath),
@@ -77,7 +79,8 @@ class GalleryRepositoryImpl(
     }
 
     override suspend fun includeFolder(folderKey: String) {
-        withContext(Dispatchers.IO) {
+        // 画面を離れた直後でも解除が失われないよう、キャンセル不可で書き込む
+        withContext(Dispatchers.IO + NonCancellable) {
             excludedFolderDao.remove(folderKey)
         }
     }
