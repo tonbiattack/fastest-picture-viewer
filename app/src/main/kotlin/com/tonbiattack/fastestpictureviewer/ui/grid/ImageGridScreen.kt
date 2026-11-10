@@ -2,7 +2,9 @@ package com.tonbiattack.fastestpictureviewer.ui.grid
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -33,6 +35,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.tonbiattack.fastestpictureviewer.R
 import com.tonbiattack.fastestpictureviewer.core.image.toImageRequest
+import com.tonbiattack.fastestpictureviewer.ui.components.FastScroller
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
@@ -96,32 +99,42 @@ fun ImageGridScreen(
                             .distinctUntilChanged()
                             .collect { viewModel.saveScrollIndex(it) }
                     }
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
-                        state = gridState,
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        itemsIndexed(
-                            state.images,
-                            key = { _, item -> item.id },
-                            contentType = { _, _ -> "imageCell" }
-                        ) { index, image ->
-                            // 更新日時とサイズをキャッシュキーに含め、上書きされた画像を再読込する
-                            val request = remember(image.id, image.dateModifiedSec, image.size) {
-                                image.toImageRequest(context)
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            state = gridState,
+                            // 右端の FastScroller と重ならないよう終端に余白を確保する
+                            contentPadding = PaddingValues(end = 20.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            itemsIndexed(
+                                state.images,
+                                key = { _, item -> item.id },
+                                contentType = { _, _ -> "imageCell" }
+                            ) { index, image ->
+                                // 更新日時とサイズをキャッシュキーに含め、上書きされた画像を再読込する
+                                val request = remember(image.id, image.dateModifiedSec, image.size) {
+                                    image.toImageRequest(context)
+                                }
+                                AsyncImage(
+                                    model = request,
+                                    contentDescription = image.displayName,
+                                    contentScale = ContentScale.Crop,
+                                    error = painterResource(R.drawable.ic_broken_image),
+                                    modifier = Modifier
+                                        .aspectRatio(1f)
+                                        .padding(1.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .clickable { onOpenViewer(state.folderKey ?: "", index) }
+                                )
                             }
-                            AsyncImage(
-                                model = request,
-                                contentDescription = image.displayName,
-                                contentScale = ContentScale.Crop,
-                                error = painterResource(R.drawable.ic_broken_image),
-                                modifier = Modifier
-                                    .aspectRatio(1f)
-                                    .padding(1.dp)
-                                    .clip(RoundedCornerShape(2.dp))
-                                    .clickable { onOpenViewer(state.folderKey ?: "", index) }
-                            )
                         }
+                        FastScroller(
+                            state = gridState,
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .fillMaxHeight()
+                        )
                     }
                 }
             }

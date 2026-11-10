@@ -1,6 +1,8 @@
 package com.tonbiattack.fastestpictureviewer.ui.folder
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,7 +20,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -52,11 +54,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +69,7 @@ import coil.compose.AsyncImage
 import com.tonbiattack.fastestpictureviewer.R
 import com.tonbiattack.fastestpictureviewer.core.image.folderThumbnailRequest
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
+import com.tonbiattack.fastestpictureviewer.ui.components.FastScroller
 import kotlinx.coroutines.flow.distinctUntilChanged
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -372,25 +376,35 @@ private fun FolderGrid(
             .collect { onScrollIndexChange(it) }
     }
 
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(columnCount),
-        state = gridState,
-        contentPadding = PaddingValues(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = modifier
-    ) {
-        items(folders, key = { it.folderKey }, contentType = { "folder" }) { folder ->
-            FolderGridCell(
-                folder = folder,
-                onClick = { onOpenFolder(folder) },
-                onFavoriteToggle = { onFavoriteToggle(folder) },
-                onExcludeRequest = { onExcludeRequest(folder) }
-            )
+    Box(modifier = modifier) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(columnCount),
+            state = gridState,
+            // 右端の FastScroller と重ならないよう終端に余白を確保する
+            contentPadding = PaddingValues(start = 8.dp, top = 8.dp, end = 24.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(folders, key = { it.folderKey }, contentType = { "folder" }) { folder ->
+                FolderGridCell(
+                    folder = folder,
+                    onClick = { onOpenFolder(folder) },
+                    onFavoriteToggle = { onFavoriteToggle(folder) },
+                    onExcludeRequest = { onExcludeRequest(folder) }
+                )
+            }
         }
+        FastScroller(
+            state = gridState,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+        )
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FolderGridCell(
     folder: FolderUiModel,
@@ -399,6 +413,7 @@ private fun FolderGridCell(
     onExcludeRequest: () -> Unit
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     var menuExpanded by remember { mutableStateOf(false) }
     val request = remember(folder.representativeImageUri, folder.latestModifiedSec) {
         folder.representativeImageUri?.let {
@@ -406,103 +421,101 @@ private fun FolderGridCell(
         }
     }
 
-    ElevatedCard(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-            ) {
-                AsyncImage(
-                    model = request,
-                    contentDescription = folder.folderName,
-                    contentScale = ContentScale.Crop,
-                    error = painterResource(R.drawable.ic_broken_image),
-                    modifier = Modifier.fillMaxSize()
+    Box(modifier = Modifier.fillMaxWidth()) {
+        ElevatedCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = {
+                        // 長押しでメニュー。スクロール中の誤表示は combinedClickable が抑止する
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        menuExpanded = true
+                    },
+                    onClickLabel = "フォルダを開く",
+                    onLongClickLabel = "フォルダメニュー"
                 )
-
-                if (folder.isFavorite) {
-                    Icon(
-                        Icons.Filled.Star,
-                        contentDescription = "お気に入り",
-                        tint = Color(0xFFFFC107),
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(6.dp)
-                            .size(20.dp)
-                    )
-                }
-
-                Box(modifier = Modifier.align(Alignment.TopEnd)) {
-                    IconButton(
-                        onClick = { menuExpanded = true },
-                        modifier = Modifier
-                            .padding(4.dp)
-                            .size(32.dp)
-                            .background(Color.Black.copy(alpha = 0.35f), CircleShape)
-                    ) {
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = "フォルダメニュー",
-                            tint = Color.White
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    if (folder.isFavorite) "お気に入りから解除"
-                                    else "お気に入りに追加"
-                                )
-                            },
-                            onClick = {
-                                menuExpanded = false
-                                onFavoriteToggle()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("このフォルダを除外") },
-                            onClick = {
-                                menuExpanded = false
-                                onExcludeRequest()
-                            }
-                        )
-                    }
-                }
-            }
-
-            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-                Text(
-                    text = folder.folderName,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(2.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(1f)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    Text(
-                        text = "${folder.imageCount} 枚",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    AsyncImage(
+                        model = request,
+                        contentDescription = folder.folderName,
+                        contentScale = ContentScale.Crop,
+                        error = painterResource(R.drawable.ic_broken_image),
+                        modifier = Modifier.fillMaxSize()
                     )
+
+                    if (folder.isFavorite) {
+                        Icon(
+                            Icons.Filled.Star,
+                            contentDescription = "お気に入り",
+                            tint = Color(0xFFFFC107),
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(6.dp)
+                                .size(20.dp)
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
                     Text(
-                        text = formatShortDate(folder.latestModifiedSec),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
+                        text = folder.folderName,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    Spacer(Modifier.height(2.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "${folder.imageCount} 枚",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = formatShortDate(folder.latestModifiedSec),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
+        }
+
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { menuExpanded = false },
+            modifier = Modifier.align(Alignment.TopEnd)
+        ) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        if (folder.isFavorite) "お気に入りから解除"
+                        else "お気に入りに追加"
+                    )
+                },
+                onClick = {
+                    menuExpanded = false
+                    onFavoriteToggle()
+                }
+            )
+            DropdownMenuItem(
+                text = { Text("このフォルダを除外") },
+                onClick = {
+                    menuExpanded = false
+                    onExcludeRequest()
+                }
+            )
         }
     }
 }
