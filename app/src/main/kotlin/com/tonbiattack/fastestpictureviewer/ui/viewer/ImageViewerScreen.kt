@@ -178,8 +178,11 @@ private fun ZoomableImage(image: ImageItem) {
                     }
                 )
             }
-            // ピンチズーム。実操作は transformable に委ねる
-            .transformable(transformState),
+            // ピンチズーム。等倍時はパンを Pager に譲り、ズーム中だけパンを消費する
+            .transformable(
+                state = transformState,
+                canPan = { scale > 1f }
+            ),
         contentAlignment = Alignment.Center
     ) {
         AsyncImage(
