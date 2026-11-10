@@ -1,5 +1,9 @@
 package com.tonbiattack.fastestpictureviewer.ui.viewer
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -22,6 +26,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,10 +41,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.imageLoader
@@ -53,24 +62,62 @@ import kotlinx.coroutines.flow.distinctUntilChanged
  *
  * - HorizontalPager で前後画像へスワイプ移動
  * - ピンチズーム / ダブルタップズーム対応 (ズーム中はページめくりを無効化)
+ * - シングルタップでヘッダーとシステムバーを隠す没入型表示 (Issue #33)
+ * - 戻る際に最後に見ていた画像 ID を一覧へ返す (Issue #35)
  * - 表示位置は ViewModel が SavedStateHandle へ書き戻す (Issue #4)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ImageViewerScreen(
     viewModel: ImageViewerViewModel,
-    onBack: () -> Unit,
+    onBack: (itemId: String?, index: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
     val context = LocalContext.current
     val imageLoader = context.imageLoader
     val containerSize = LocalWindowInfo.current.containerSize
+    val view = LocalView.current
+
+    // ビューアを開き直したら通常表示に戻る。ページ移動では維持される
+    var immersive by remember { mutableStateOf(false) }
+
+    // フルスクリーン中はシステムバーを隠し、画面離脱時は必ず戻す
+    DisposableEffect(immersive, view) {
+        val window = view.context.findActivity()?.window
+        if (window == null) {
+            onDispose { }
+        } else {
+            val controller = WindowCompat.getInsetsController(window, view)
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (immersive) {
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+            } else {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            }
+            onDispose {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
 
     val pagerState = rememberPagerState(
         initialPage = state.initialIndex,
         pageCount = { state.images.size }
     )
+
+    val closeViewer: () -> Unit = {
+        onBack(
+            state.images.getOrNull(pagerState.currentPage)?.id,
+            pagerState.currentPage
+        )
+    }
+
+    // 没入型表示中は戻る操作でまず通常表示に戻し、次の戻るで一覧へ返る
+    BackHandler {
+        if (immersive) immersive = false else closeViewer()
+    }
 
     // 現在ページの変化を ViewModel に記録し、プロセス再生成後に復元できるようにする
     LaunchedEffect(pagerState) {
@@ -95,48 +142,50 @@ fun ImageViewerScreen(
         modifier = modifier.background(MaterialTheme.colorScheme.background),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = {
-                    // "3 / 120" 形式の位置表示
-                    val current = if (state.images.isEmpty()) 0 else pagerState.currentPage
-                    if (state.images.isNotEmpty()) {
-                        Text("${current + 1} / ${state.images.size}")
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "戻る"
-                        )
-                    }
-                },
-                actions = {
-                    val currentImage = state.images.getOrNull(pagerState.currentPage)
-                    if (currentImage != null) {
-                        val isFavorite = currentImage.id in state.favoriteIds
-                        IconButton(
-                            onClick = {
-                                viewModel.toggleFavorite(currentImage.id, isFavorite)
-                            }
-                        ) {
+            if (!immersive) {
+                TopAppBar(
+                    title = {
+                        // "3 / 120" 形式の位置表示
+                        val current = if (state.images.isEmpty()) 0 else pagerState.currentPage
+                        if (state.images.isNotEmpty()) {
+                            Text("${current + 1} / ${state.images.size}")
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = closeViewer) {
                             Icon(
-                                Icons.Filled.Star,
-                                contentDescription = if (isFavorite) {
-                                    "画像のお気に入りから解除"
-                                } else {
-                                    "画像のお気に入りに追加"
-                                },
-                                tint = if (isFavorite) {
-                                    Color(0xFFFFC107)
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "戻る"
                             )
                         }
+                    },
+                    actions = {
+                        val currentImage = state.images.getOrNull(pagerState.currentPage)
+                        if (currentImage != null) {
+                            val isFavorite = currentImage.id in state.favoriteIds
+                            IconButton(
+                                onClick = {
+                                    viewModel.toggleFavorite(currentImage.id, isFavorite)
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Filled.Star,
+                                    contentDescription = if (isFavorite) {
+                                        "画像のお気に入りから解除"
+                                    } else {
+                                        "画像のお気に入りに追加"
+                                    },
+                                    tint = if (isFavorite) {
+                                        Color(0xFFFFC107)
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                            }
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     ) { padding ->
         if (state.images.isEmpty()) {
@@ -152,16 +201,22 @@ fun ImageViewerScreen(
                         .weight(1f)
                 ) { page ->
                     val image = state.images.getOrNull(page) ?: return@HorizontalPager
-                    ZoomableImage(image = image)
+                    ZoomableImage(
+                        image = image,
+                        onSingleTap = { immersive = !immersive }
+                    )
                 }
             }
         }
     }
 }
 
-/** ピンチズーム・ダブルタップに対応した画像。ズーム中は Pager のスワイプと競合しないよう変換をローカルで完結させる */
+/** ピンチズーム・ダブルタップ・シングルタップに対応した画像 */
 @Composable
-private fun ZoomableImage(image: ImageItem) {
+private fun ZoomableImage(
+    image: ImageItem,
+    onSingleTap: () -> Unit
+) {
     val context = LocalContext.current
     val request = remember(image.id, image.dateModifiedSec, image.size) {
         image.toImageRequest(context)
@@ -191,9 +246,11 @@ private fun ZoomableImage(image: ImageItem) {
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            // ダブルタップで 2 倍ズームのトグル
+            // シングルタップで没入型表示を切り替える。
+            // detectTapGestures はダブルタップ確定後に onTap を呼ぶため、意図しない切替を防げる。
             .pointerInput(image.uri) {
                 detectTapGestures(
+                    onTap = { onSingleTap() },
                     onDoubleTap = {
                         if (scale > 1f) {
                             scale = 1f
@@ -226,4 +283,11 @@ private fun ZoomableImage(image: ImageItem) {
                 }
         )
     }
+}
+
+/** Compose の View から所属 Activity を取り出す */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

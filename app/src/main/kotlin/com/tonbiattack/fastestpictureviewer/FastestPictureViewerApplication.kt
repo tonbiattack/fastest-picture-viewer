@@ -16,7 +16,9 @@ import com.tonbiattack.fastestpictureviewer.ui.folder.ExcludedFoldersViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.FolderListViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.FolderViewSettings
 import com.tonbiattack.fastestpictureviewer.ui.folder.SharedPreferencesFolderViewSettings
+import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridViewSettings
 import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridViewModel
+import com.tonbiattack.fastestpictureviewer.ui.grid.SharedPreferencesImageGridViewSettings
 import com.tonbiattack.fastestpictureviewer.ui.viewer.ImageViewerViewModel
 import coil.ImageLoader
 import coil.ImageLoaderFactory
@@ -42,6 +44,9 @@ class AppContainer(
     /** フォルダ一覧の列数など、画面設定の永続化 */
     val folderViewSettings: FolderViewSettings = SharedPreferencesFolderViewSettings(context)
 
+    /** フォルダ内画像グリッドの列数設定 */
+    val imageGridViewSettings: ImageGridViewSettings = SharedPreferencesImageGridViewSettings(context)
+
     /**
      * サムネイルのメモリ・ディスクキャッシュを削除する。
      * Room のメタ情報は消さないため、次回表示時に再生成されるだけ。
@@ -65,7 +70,7 @@ class AppContainer(
                 modelClass.isAssignableFrom(FavoriteImagesViewModel::class.java) ->
                     FavoriteImagesViewModel(repository)
                 modelClass.isAssignableFrom(ImageGridViewModel::class.java) ->
-                    ImageGridViewModel(repository, savedStateHandle)
+                    ImageGridViewModel(repository, savedStateHandle, imageGridViewSettings)
                 modelClass.isAssignableFrom(ImageViewerViewModel::class.java) ->
                     ImageViewerViewModel(repository, savedStateHandle)
                 modelClass.isAssignableFrom(AppViewModel::class.java) ->

@@ -2,8 +2,12 @@ package com.tonbiattack.fastestpictureviewer.ui
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -23,7 +27,12 @@ import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridScreen
 import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridViewModel
 import com.tonbiattack.fastestpictureviewer.ui.viewer.ImageViewerScreen
 import com.tonbiattack.fastestpictureviewer.ui.viewer.ImageViewerViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+
+/** ビューアから一覧へ返す最後の閲覧位置 */
+private const val KEY_LAST_VIEWED_ITEM = "lastViewedItemId"
+private const val KEY_LAST_VIEWED_INDEX = "lastViewedIndex"
 
 /** 画面経路 */
 object Routes {
@@ -144,6 +153,20 @@ fun AppNavHost(
             )
         ) {
             val viewModel: ImageGridViewModel = viewModel(factory = factory)
+            val entry = navController.currentBackStackEntry
+            val lastViewedFlow = remember(entry) {
+                entry?.savedStateHandle
+                    ?.getStateFlow<String?>(KEY_LAST_VIEWED_ITEM, null)
+                    ?: MutableStateFlow<String?>(null)
+            }
+            val lastViewedItemId by lastViewedFlow.collectAsStateWithLifecycle()
+            LaunchedEffect(lastViewedItemId) {
+                val itemId = lastViewedItemId ?: return@LaunchedEffect
+                val index = entry?.savedStateHandle?.get<Int>(KEY_LAST_VIEWED_INDEX) ?: 0
+                viewModel.onReturnedFromViewer(itemId, index)
+                entry?.savedStateHandle?.remove<String>(KEY_LAST_VIEWED_ITEM)
+                entry?.savedStateHandle?.remove<Int>(KEY_LAST_VIEWED_INDEX)
+            }
             ImageGridScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
@@ -167,7 +190,18 @@ fun AppNavHost(
             val viewModel: ImageViewerViewModel = viewModel(factory = factory)
             ImageViewerScreen(
                 viewModel = viewModel,
-                onBack = { navController.popBackStack() }
+                onBack = { itemId, index ->
+                    // 呼び出し元 (通常は画像グリッド) に最後の閲覧位置を返す
+                    navController.previousBackStackEntry?.savedStateHandle?.apply {
+                        if (itemId != null) {
+                            set(KEY_LAST_VIEWED_ITEM, itemId)
+                        } else {
+                            remove<String>(KEY_LAST_VIEWED_ITEM)
+                        }
+                        set(KEY_LAST_VIEWED_INDEX, index)
+                    }
+                    navController.popBackStack()
+                }
             )
         }
     }
