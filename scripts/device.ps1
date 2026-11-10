@@ -21,7 +21,8 @@ param(
     [string]$Activity = '.MainActivity',
     [int]$Runs = 3,
     [int]$LogLines = 500,
-    [string]$Output,
+    [Alias('Output')]
+    [string]$OutputPath,
     [switch]$Build
 )
 
@@ -96,13 +97,13 @@ function Format-DeviceInfo {
 }
 
 function Write-CsvIfRequested {
-    param([object[]]$Rows)
-    if (-not $Output) { return }
-    $path = [System.IO.Path]::GetFullPath((Join-Path $projectRoot $Output))
-    $dir = Split-Path -Parent $path
+    param([object[]]$Rows, [string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+    $fullPath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot $Path))
+    $dir = Split-Path -Parent $fullPath
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    $Rows | Export-Csv -Path $path -NoTypeInformation -Encoding UTF8
-    Write-Host ("保存しました: {0}" -f $path) -ForegroundColor Green
+    $Rows | Export-Csv -Path $fullPath -NoTypeInformation -Encoding UTF8
+    Write-Host ("保存しました: {0}" -f $fullPath) -ForegroundColor Green
 }
 
 $script:Adb = Resolve-Adb
@@ -149,8 +150,8 @@ switch ($Action) {
     'Logs' {
         $target = Resolve-Serial
         $lines = & $script:Adb -s $target logcat -d -t $LogLines -v time 2>&1
-        if ($Output) {
-            $path = [System.IO.Path]::GetFullPath((Join-Path $projectRoot $Output))
+        if ($OutputPath) {
+            $path = [System.IO.Path]::GetFullPath((Join-Path $projectRoot $OutputPath))
             $dir = Split-Path -Parent $path
             if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
             $lines | Out-File -FilePath $path -Encoding utf8
@@ -208,7 +209,7 @@ switch ($Action) {
             Write-Output ''
             Write-Output ("TotalTime: avg={0:N0}ms min={1}ms max={2}ms (n={3})" -f $avg, $min, $max, $valid.Count)
         }
-        Write-CsvIfRequested -Rows $rows
+        Write-CsvIfRequested -Rows $rows -Path $OutputPath
     }
 
     'Verify' {
@@ -233,7 +234,7 @@ switch ($Action) {
 
         Write-Host '=== ログ取得 ===' -ForegroundColor Cyan
         $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-        & $PSCommandPath -Action Logs -Serial $target -LogLines $LogLines -Output "captures\logcat-$stamp.txt"
+        & $PSCommandPath -Action Logs -Serial $target -LogLines $LogLines -OutputPath "captures\logcat-$stamp.txt"
 
         Write-Host '実機での操作感・一覧消失の確認は docs\device-verification.md のチェックリストに沿って人が行ってください。' -ForegroundColor Yellow
     }

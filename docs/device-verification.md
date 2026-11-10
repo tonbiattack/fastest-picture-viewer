@@ -62,7 +62,7 @@ powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Measure -Run
 
 # 6. スクリーンショットとログ
 powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Screenshot
-powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Logs -Output captures\logcat.txt
+powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Logs -OutputPath captures\logcat.txt
 
 # まとめて実行する場合（ビルド込み）
 powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Verify -Build
@@ -87,7 +87,7 @@ Run 1: TotalTime=xxxms WaitTime=xxxms Status=ok
 TotalTime: avg=xxxms min=xxxms max=xxxms (n=5)
 ```
 
-`-Output captures\startup.csv` を付けると CSV で保存できる。
+`-OutputPath captures\startup.csv` を付けると CSV で保存できる（`-Output` もエイリアスとして使用可）。
 計測値は端末の状態（権限許可、初回スキャン完了、画像枚数）に大きく左右されるため、
 条件を記録してから比較する。
 

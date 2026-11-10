@@ -169,4 +169,18 @@ class ImageItemDaoTest {
         ids.chunked(500).forEach { dao.deleteByIds(it) }
         assertEquals(0L, dao.count())
     }
+
+    @Test
+    fun `バッチ処理用にIDだけ取得できる`() = runTest {
+        val dao = db.imageItemDao()
+        val ids = (0 until 600).map { "id$it" }
+        dao.upsertAll(ids.map { buildItem(it, "v", "Pictures/", "$it.jpg", 1L) })
+
+        val volumeIds = dao.getIdsByVolume("v")
+        assertEquals(600, volumeIds.size)
+
+        // 500 件ずつ本体を取得できる (SQLite の変数上限を超えない)
+        val batch = dao.getImagesByIds(volumeIds.take(500))
+        assertEquals(500, batch.size)
+    }
 }

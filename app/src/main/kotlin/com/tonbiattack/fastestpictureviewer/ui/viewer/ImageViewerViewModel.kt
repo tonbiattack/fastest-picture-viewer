@@ -31,8 +31,20 @@ class ImageViewerViewModel(
 
     private val folderKey: String = savedStateHandle.get<String>(KEY_FOLDER).orEmpty()
 
-    private val requestedIndex: Int =
-        savedStateHandle.get<Int>(KEY_INDEX)?.takeIf { it >= 0 } ?: 0
+    /**
+     * ナビゲーション引数は型を宣言していないと String で入るため、
+     * Int / String / Long のいずれでも安全に読み取る。
+     */
+    private val requestedIndex: Int = run {
+        val raw: Any? = savedStateHandle[KEY_INDEX]
+        val index = when (raw) {
+            is Int -> raw
+            is Long -> raw.toInt()
+            is String -> raw.toIntOrNull() ?: 0
+            else -> 0
+        }
+        index.takeIf { it >= 0 } ?: 0
+    }
 
     val uiState: StateFlow<ImageViewerUiState> = repository.observeImages(folderKey)
         .map { images ->

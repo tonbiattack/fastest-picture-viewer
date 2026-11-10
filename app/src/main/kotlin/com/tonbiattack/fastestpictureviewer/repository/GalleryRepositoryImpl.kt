@@ -1,5 +1,7 @@
 package com.tonbiattack.fastestpictureviewer.repository
 
+import android.os.SystemClock
+import android.util.Log
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
@@ -15,7 +17,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
-import androidx.room.withTransaction
 
 /**
  * [GalleryRepository] の実装。
@@ -83,10 +84,13 @@ class GalleryRepositoryImpl(
     private suspend fun runSync(mode: SyncMode, canDelete: Boolean): SyncResult {
         // 初回 (DB 空) かどうかを同期開始直前に判定する
         val isEmpty = imageDao.count() == 0L
-        val isFull = mode == SyncMode.FULL || isEmpty
-
         val before = syncStateDao.get() ?: SyncStateEntity(lastSinceSec = 0L, lastFullSyncSec = 0L)
         val startSec = nowSeconds()
+
+        // 削除反映のため、手動更新に加えて一定期間ごとに全件走査する
+        val fullScanDue = (startSec - before.lastFullSyncSec) >= FULL_SCAN_INTERVAL_SEC
+        val isFull = mode == SyncMode.FULL || isEmpty || fullScanDue
+        val syncStartedAtMs = SystemClock.elapsedRealtime()
 
         _syncStatus.value = SyncStatus(
             isRunning = true,
@@ -99,6 +103,7 @@ class GalleryRepositoryImpl(
         var removed = 0
         val failedVolumes = mutableListOf<String>()
         var anyFailure = false
+        var skippedVolumes = 0
 
         val volumes = scanner.volumes()
         for (volumeName in volumes) {
@@ -112,35 +117,61 @@ class GalleryRepositoryImpl(
                     currentGeneration = currentGeneration,
                     storedGeneration = stored?.contentGeneration
                 )
-                if (scanKind == VolumeScanKind.SKIP) continue
-
-                val scanned: List<ImageItem> = scanner.scan(
-                    volumeName = volumeName,
-                    // 完全走査なら全部、差分なら前回値から緩衝を引いて取得
-                    modifiedAfterSec = if (scanKind == VolumeScanKind.FULL) null else {
-                        (before.lastSinceSec - differentialBufferSec).coerceAtLeast(0L)
-                    }
+                Log.i(
+                    "FPV-Perf",
+                    "volume=$volumeName currentGen=$currentGeneration " +
+                        "storedGen=${stored?.contentGeneration} kind=$scanKind"
                 )
+                if (scanKind == VolumeScanKind.SKIP) {
+                    skippedVolumes++
+                    continue
+                }
+
+                // 完全走査なら全部、差分なら前回値から緩衝を引いて取得
+                val modifiedAfterSec = if (scanKind == VolumeScanKind.FULL) null else {
+                    (before.lastSinceSec - differentialBufferSec).coerceAtLeast(0L)
+                }
 
                 if (scanKind == VolumeScanKind.FULL) {
-                    // 完全走査: このボリュームの既存行と突き合わせて差分反映を行う
-                    val cached = imageDao.getImagesByVolume(volumeName)
-                    val plan = PendingSyncPlanner.plan(scanned, cached)
-                    db.withTransaction {
-                        imageDao.upsertAll(plan.upserts)
-                        if (canDelete && plan.deletions.isNotEmpty()) {
-                            deleteInChunks(plan.deletions.map { it.id })
-                        }
+                    // 大量画像でも OOM しないよう、既存 ID の集合だけ保持して 500 件ずつ処理する。
+                    // 削除は走査が最後まで成功した場合にだけ行う。
+                    val cachedIds = if (canDelete) {
+                        imageDao.getIdsByVolume(volumeName).toMutableSet()
+                    } else {
+                        null
                     }
-                    val cachedIds = cached.mapTo(hashSetOf()) { it.id }
-                    val newlyAdded = plan.upserts.count { it.id !in cachedIds }
-                    added += newlyAdded
-                    updated += plan.upserts.size - newlyAdded
-                    removed += if (canDelete) plan.deletions.size else 0
+                    var scanAdded = 0
+                    var scanUpdated = 0
+
+                    scanner.scanBatched(volumeName, modifiedAfterSec) { batch ->
+                        val existing = imageDao.getImagesByIds(batch.map { it.id })
+                        val plan = PendingSyncPlanner.plan(batch, existing)
+                        if (plan.upserts.isNotEmpty()) {
+                            imageDao.upsertAll(plan.upserts)
+                        }
+                        cachedIds?.let { ids -> batch.forEach { ids.remove(it.id) } }
+
+                        val existingIds = existing.mapTo(hashSetOf()) { it.id }
+                        val newlyAdded = plan.upserts.count { it.id !in existingIds }
+                        scanAdded += newlyAdded
+                        scanUpdated += plan.upserts.size - newlyAdded
+                    }
+
+                    added += scanAdded
+                    updated += scanUpdated
+
+                    if (canDelete && cachedIds != null && cachedIds.isNotEmpty()) {
+                        deleteInChunks(cachedIds.toList())
+                        removed += cachedIds.size
+                    }
                 } else {
                     // 差分走査: 新規/更新のみを upsert する (削除反映は完全走査が担う)
-                    imageDao.upsertAll(scanned)
-                    added += scanned.size
+                    var scanCount = 0
+                    scanner.scanBatched(volumeName, modifiedAfterSec) { batch ->
+                        imageDao.upsertAll(batch)
+                        scanCount += batch.size
+                    }
+                    added += scanCount
                 }
 
                 // 成功したボリュームだけ世代番号を更新する。失敗時は前回値のまま残し再走査させる
@@ -191,6 +222,13 @@ class GalleryRepositoryImpl(
             failedVolumes = failedVolumes
         )
 
+        Log.i(
+            "FPV-Perf",
+            "sync done: ${SystemClock.elapsedRealtime() - syncStartedAtMs}ms, " +
+                "full=$isFull added=$added updated=$updated removed=$removed " +
+                "skipped=$skippedVolumes failed=${failedVolumes.size}"
+        )
+
         _syncStatus.value = SyncStatus(
             isRunning = false,
             isInitialScan = false,
@@ -211,5 +249,8 @@ class GalleryRepositoryImpl(
 
     companion object {
         private const val DELETE_CHUNK_SIZE = 500
+
+        /** 削除を反映するための定期全件走査の間隔 (24 時間) */
+        private const val FULL_SCAN_INTERVAL_SEC = 24L * 60L * 60L
     }
 }

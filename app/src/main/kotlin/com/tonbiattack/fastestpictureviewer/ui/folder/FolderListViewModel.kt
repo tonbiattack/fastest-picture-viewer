@@ -9,6 +9,7 @@ import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 
 /** フォルダ一覧の 1 行分 */
@@ -52,12 +53,22 @@ class FolderListViewModel(
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
+    /** 一覧の初回表示までの時間計測用 (JVM 単体テストでも動くよう System.nanoTime を使う) */
+    private val startedAtNanos = System.nanoTime()
+    private var firstFrameLogged = false
+
     /** フォルダ集計 + 代表サムネイル + 同期状態を合成する */
     val uiState: StateFlow<FolderListUiState> = combine(
         repository.observeFolderSummaries(),
-        repository.observeRepresentatives(),
+        // 代表サムネイルの到着を待たず、フォルダ一覧を先に表示する
+        repository.observeRepresentatives().onStart { emit(emptyList()) },
         repository.syncStatus
     ) { summaries, representatives, status ->
+        if (!firstFrameLogged && summaries.isNotEmpty()) {
+            firstFrameLogged = true
+            val elapsedMs = (System.nanoTime() - startedAtNanos) / 1_000_000
+            println("FPV-Perf: folder list first frame: ${elapsedMs}ms, folders=${summaries.size}")
+        }
         FolderListUiState(
             isLoadingFirstFrame = false,
             folders = summaries.toUiModels(representatives),

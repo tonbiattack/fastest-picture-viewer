@@ -6,9 +6,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.tonbiattack.fastestpictureviewer.AppContainer
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
 import com.tonbiattack.fastestpictureviewer.ui.folder.FolderListScreen
@@ -73,7 +75,12 @@ fun AppNavHost(
             )
         }
 
-        composable(Routes.IMAGE_GRID) {
+        composable(
+            route = Routes.IMAGE_GRID,
+            arguments = listOf(
+                navArgument("folderKey") { type = NavType.StringType }
+            )
+        ) {
             val viewModel: ImageGridViewModel = viewModel(factory = factory)
             ImageGridScreen(
                 viewModel = viewModel,
@@ -84,7 +91,13 @@ fun AppNavHost(
             )
         }
 
-        composable(Routes.IMAGE_VIEWER) {
+        composable(
+            route = Routes.IMAGE_VIEWER,
+            arguments = listOf(
+                navArgument("folderKey") { type = NavType.StringType },
+                navArgument("startIndex") { type = NavType.IntType }
+            )
+        ) {
             val viewModel: ImageViewerViewModel = viewModel(factory = factory)
             ImageViewerScreen(
                 viewModel = viewModel,

@@ -15,10 +15,12 @@ enum class VolumeScanKind {
 /**
  * MediaStore の世代番号から、ボリュームごとの走査種別を決める純粋ロジック。
  *
- * - 手動更新や DB が空の場合は全件走査
+ * - 手動更新や DB が空の場合、定期全件走査の期限が来た場合は全件走査
  * - 世代番号が取得でき、前回と同じなら走査を省略
- * - 世代番号が変わっていれば、削除・改名・移動を拾うため全件走査
- * - 世代番号が取得できない環境では日時ベースの差分走査
+ * - 世代番号が変わっていても、通常は日時ベースの差分走査だけ行う
+ *   (写真追加のたびに 35 万件を全件走査すると遅すぎるため)
+ * - 削除の反映は手動更新または定期全件走査に任せる
+ * - 世代番号が取得できない環境も日時ベースの差分走査
  */
 object VolumeSyncPolicy {
 
@@ -34,7 +36,7 @@ object VolumeSyncPolicy {
         return if (currentGeneration == storedGeneration) {
             VolumeScanKind.SKIP
         } else {
-            VolumeScanKind.FULL
+            VolumeScanKind.INCREMENTAL
         }
     }
 }

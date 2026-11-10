@@ -23,9 +23,10 @@ class VolumeSyncPolicyTest {
     }
 
     @Test
-    fun `世代番号が変わったら削除も拾うため全件走査する`() {
+    fun `世代番号が変わっても通常は差分走査にする`() {
+        // 写真が追加されるたびに全件走査すると大量画像で遅くなるため、差分に留める
         assertEquals(
-            VolumeScanKind.FULL,
+            VolumeScanKind.INCREMENTAL,
             VolumeSyncPolicy.decide(isFullSync = false, currentGeneration = 11L, storedGeneration = 10L)
         )
     }

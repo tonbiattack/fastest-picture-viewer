@@ -38,12 +38,15 @@ interface ImageItemDao {
      */
     @Query(
         """
-        SELECT id, folderKey
-        FROM images
-        WHERE dateModifiedSec = (
-            SELECT MAX(dateModifiedSec) FROM images AS candidate
-            WHERE candidate.folderKey = images.folderKey
-        )
+        SELECT i.id AS id, i.folderKey AS folderKey
+        FROM images AS i
+        INNER JOIN (
+            SELECT folderKey, MAX(dateModifiedSec) AS maxModified
+            FROM images
+            GROUP BY folderKey
+        ) AS latest
+          ON i.folderKey = latest.folderKey
+         AND i.dateModifiedSec = latest.maxModified
         """
     )
     fun observeRepresentatives(): Flow<List<RepresentativeImageRow>>
@@ -65,6 +68,14 @@ interface ImageItemDao {
     /** 指定ボリュームの画像を全件取得する (削除判定用) */
     @Query("SELECT * FROM images WHERE volumeName = :volumeName")
     suspend fun getImagesByVolume(volumeName: String): List<ImageItem>
+
+    /** 指定ボリュームの画像 ID だけを取得する (大量画像でもメモリを抑えた削除判定用) */
+    @Query("SELECT id FROM images WHERE volumeName = :volumeName")
+    suspend fun getIdsByVolume(volumeName: String): List<String>
+
+    /** バッチ単位の変更検出用。500 件程度の ID を渡す */
+    @Query("SELECT * FROM images WHERE id IN (:ids)")
+    suspend fun getImagesByIds(ids: List<String>): List<ImageItem>
 
     /** 保存済み画像の総数 */
     @Query("SELECT COUNT(*) FROM images")
