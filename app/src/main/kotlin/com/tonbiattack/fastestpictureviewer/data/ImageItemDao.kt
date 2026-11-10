@@ -25,6 +25,15 @@ interface ImageItemDao {
                COUNT(*) AS imageCount,
                MAX(dateModifiedSec) AS latestModifiedSec
         FROM images
+        WHERE NOT EXISTS (
+            SELECT 1 FROM excluded_folders AS excluded
+            WHERE excluded.volumeName = images.volumeName
+              AND (
+                  (excluded.relativePath = '' AND images.relativePath = '')
+                  OR (excluded.relativePath <> ''
+                      AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
+              )
+        )
         GROUP BY folderKey
         ORDER BY latestModifiedSec DESC, folderKey ASC
         """
@@ -43,6 +52,15 @@ interface ImageItemDao {
         INNER JOIN (
             SELECT folderKey, MAX(dateModifiedSec) AS maxModified
             FROM images
+            WHERE NOT EXISTS (
+                SELECT 1 FROM excluded_folders AS excluded
+                WHERE excluded.volumeName = images.volumeName
+                  AND (
+                      (excluded.relativePath = '' AND images.relativePath = '')
+                      OR (excluded.relativePath <> ''
+                          AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
+                  )
+            )
             GROUP BY folderKey
         ) AS latest
           ON i.folderKey = latest.folderKey
@@ -56,6 +74,15 @@ interface ImageItemDao {
         """
         SELECT * FROM images
         WHERE folderKey = :folderKey
+          AND NOT EXISTS (
+              SELECT 1 FROM excluded_folders AS excluded
+              WHERE excluded.volumeName = images.volumeName
+                AND (
+                    (excluded.relativePath = '' AND images.relativePath = '')
+                    OR (excluded.relativePath <> ''
+                        AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
+                )
+          )
         ORDER BY sortName ASC, mediaId ASC
         """
     )

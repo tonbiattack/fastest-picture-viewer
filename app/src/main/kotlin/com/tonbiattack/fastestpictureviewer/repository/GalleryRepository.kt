@@ -1,5 +1,6 @@
 package com.tonbiattack.fastestpictureviewer.repository
 
+import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
@@ -38,4 +39,16 @@ interface GalleryRepository {
 
     /** お気に入り一覧を購読する */
     fun observeFavorites(): Flow<List<FavoriteImageEntity>>
+
+    /** 除外フォルダ一覧を購読する */
+    fun observeExcludedFolders(): Flow<List<ExcludedFolderEntity>>
+
+    /**
+     * フォルダを一覧から除外する。元画像ファイルには変更を加えない。
+     * 親フォルダを除外すると配下のサブフォルダも表示対象から外れる。
+     */
+    suspend fun excludeFolder(volumeName: String, relativePath: String)
+
+    /** 除外を解除する */
+    suspend fun includeFolder(folderKey: String)
 }

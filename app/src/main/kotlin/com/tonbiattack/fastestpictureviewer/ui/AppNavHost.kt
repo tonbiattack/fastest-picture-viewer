@@ -13,6 +13,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.tonbiattack.fastestpictureviewer.AppContainer
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
+import com.tonbiattack.fastestpictureviewer.ui.folder.ExcludedFoldersScreen
+import com.tonbiattack.fastestpictureviewer.ui.folder.ExcludedFoldersViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.FolderListScreen
 import com.tonbiattack.fastestpictureviewer.ui.folder.FolderListViewModel
 import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridScreen
@@ -24,6 +26,7 @@ import kotlinx.coroutines.launch
 /** 画面経路 */
 object Routes {
     const val FOLDER_LIST = "folders"
+    const val EXCLUDED_FOLDERS = "excluded-folders"
     const val IMAGE_GRID = "images/{folderKey}"
     const val IMAGE_VIEWER = "viewer/{folderKey}/{startIndex}"
 
@@ -69,9 +72,28 @@ fun AppNavHost(
                 onClearImageCache = {
                     scope.launch { container.clearImageCaches() }
                 },
+                onOpenExcludedFolders = {
+                    navController.navigate(Routes.EXCLUDED_FOLDERS)
+                },
+                onExcludeFolder = { folder ->
+                    scope.launch {
+                        container.repository.excludeFolder(
+                            volumeName = folder.volumeName,
+                            relativePath = folder.relativePath
+                        )
+                    }
+                },
                 onOpenFolder = { folder ->
                     navController.navigate(Routes.imageGrid(folder.folderKey))
                 }
+            )
+        }
+
+        composable(Routes.EXCLUDED_FOLDERS) {
+            val viewModel: ExcludedFoldersViewModel = viewModel(factory = factory)
+            ExcludedFoldersScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() }
             )
         }
 

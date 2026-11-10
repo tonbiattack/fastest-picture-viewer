@@ -1,6 +1,7 @@
 package com.tonbiattack.fastestpictureviewer.ui.viewer
 
 import androidx.lifecycle.SavedStateHandle
+import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
@@ -37,6 +38,9 @@ class ImageViewerViewModelTest {
             SyncResult(0, 0, 0, emptyList())
         override suspend fun setFavorite(itemId: String, favorite: Boolean) = Unit
         override fun observeFavorites(): Flow<List<FavoriteImageEntity>> = MutableStateFlow(emptyList())
+        override fun observeExcludedFolders(): Flow<List<ExcludedFolderEntity>> = MutableStateFlow(emptyList())
+        override suspend fun excludeFolder(volumeName: String, relativePath: String) = Unit
+        override suspend fun includeFolder(folderKey: String) = Unit
     }
 
     private fun images(count: Int): List<ImageItem> = (0 until count).map { index ->

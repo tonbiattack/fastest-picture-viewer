@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.stateIn
 /** フォルダ一覧の 1 行分 */
 data class FolderUiModel(
     val folderKey: String,
+    val volumeName: String,
+    val relativePath: String,
     val folderName: String,
     val imageCount: Long,
     val latestModifiedSec: Long,
@@ -100,6 +102,8 @@ class FolderListViewModel(
         return map { row ->
             FolderUiModel(
                 folderKey = row.folderKey,
+                volumeName = row.volumeName,
+                relativePath = row.relativePath,
                 folderName = FolderNames.parse(row.relativePath),
                 imageCount = row.imageCount,
                 latestModifiedSec = row.latestModifiedSec,

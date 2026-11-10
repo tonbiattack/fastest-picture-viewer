@@ -17,9 +17,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -68,11 +72,14 @@ fun FolderListScreen(
     onRequestPermission: () -> Unit,
     onManualRefresh: () -> Unit,
     onClearImageCache: () -> Unit,
+    onOpenExcludedFolders: () -> Unit,
+    onExcludeFolder: (FolderUiModel) -> Unit,
     onOpenFolder: (FolderUiModel) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
     var showClearCacheDialog by remember { mutableStateOf(false) }
+    var pendingExclude by remember { mutableStateOf<FolderUiModel?>(null) }
 
     if (showClearCacheDialog) {
         AlertDialog(
@@ -93,12 +100,39 @@ fun FolderListScreen(
         )
     }
 
+    pendingExclude?.let { folder ->
+        AlertDialog(
+            onDismissRequest = { pendingExclude = null },
+            title = { Text("フォルダを除外") },
+            text = {
+                Text(
+                    "「${folder.folderName}」をフォルダ一覧から除外します。" +
+                        "元の画像は削除されません。設定の「除外フォルダ」から解除できます。"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingExclude = null
+                        onExcludeFolder(folder)
+                    }
+                ) { Text("除外") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingExclude = null }) { Text("キャンセル") }
+            }
+        )
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text("フォルダ") },
                 actions = {
+                    IconButton(onClick = onOpenExcludedFolders) {
+                        Icon(Icons.Filled.Settings, contentDescription = "除外フォルダ設定")
+                    }
                     // 手動更新。実行中はインジケータに置き換える (連打防止)
                     if (state.isSyncing) {
                         CircularProgressIndicator(
@@ -148,6 +182,7 @@ fun FolderListScreen(
                         // プロセス再生成後もスクロール基準を SavedStateHandle から復元する
                         initialScrollIndex = viewModel.initialScrollIndex(),
                         onScrollIndexChange = viewModel::saveScrollIndex,
+                        onExcludeRequest = { pendingExclude = it },
                         onOpenFolder = onOpenFolder,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -173,6 +208,7 @@ private fun FolderList(
     folders: List<FolderUiModel>,
     initialScrollIndex: Int,
     onScrollIndexChange: (Int) -> Unit,
+    onExcludeRequest: (FolderUiModel) -> Unit,
     onOpenFolder: (FolderUiModel) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -188,14 +224,23 @@ private fun FolderList(
     // リスト状態は back stack の保存領域に自動保存されるため、戻る操作で初期化されない
     LazyColumn(modifier = modifier, state = listState) {
         items(folders, key = { it.folderKey }, contentType = { "folder" }) { folder ->
-            FolderRow(folder = folder, onClick = { onOpenFolder(folder) })
+            FolderRow(
+                folder = folder,
+                onClick = { onOpenFolder(folder) },
+                onExcludeRequest = { onExcludeRequest(folder) }
+            )
         }
     }
 }
 
 @Composable
-private fun FolderRow(folder: FolderUiModel, onClick: () -> Unit) {
+private fun FolderRow(
+    folder: FolderUiModel,
+    onClick: () -> Unit,
+    onExcludeRequest: () -> Unit
+) {
     val context = LocalContext.current
+    var menuExpanded by remember { mutableStateOf(false) }
     val request = remember(folder.representativeImageUri, folder.latestModifiedSec) {
         folder.representativeImageUri?.let {
             folderThumbnailRequest(context, it, folder.latestModifiedSec)
@@ -243,6 +288,26 @@ private fun FolderRow(folder: FolderUiModel, onClick: () -> Unit) {
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Box {
+                IconButton(
+                    onClick = { menuExpanded = true },
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "フォルダメニュー")
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("このフォルダを除外") },
+                        onClick = {
+                            menuExpanded = false
+                            onExcludeRequest()
+                        }
+                    )
+                }
+            }
         }
     }
 }

@@ -2,6 +2,7 @@ package com.tonbiattack.fastestpictureviewer.ui.folder
 
 import androidx.lifecycle.SavedStateHandle
 import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
+import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
@@ -61,6 +62,13 @@ class FolderListViewModelTest {
 
         override fun observeFavorites(): Flow<List<FavoriteImageEntity>> =
             MutableStateFlow(emptyList())
+
+        override fun observeExcludedFolders(): Flow<List<ExcludedFolderEntity>> =
+            MutableStateFlow(emptyList())
+
+        override suspend fun excludeFolder(volumeName: String, relativePath: String) = Unit
+
+        override suspend fun includeFolder(folderKey: String) = Unit
     }
 
     @Before
@@ -73,12 +81,16 @@ class FolderListViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun summary(key: String, count: Long = 1L) = FolderSummaryRow(
+    private fun summary(
+        key: String,
+        count: Long = 1L,
+        modifiedSec: Long = 100L
+    ) = FolderSummaryRow(
         folderKey = key,
         volumeName = "v",
         relativePath = key.substringAfter(':'),
         imageCount = count,
-        latestModifiedSec = 100L
+        latestModifiedSec = modifiedSec
     )
 
     private fun representative(folderKey: String) = RepresentativeImageRow(
@@ -145,6 +157,30 @@ class FolderListViewModelTest {
         val state = vm.uiState.value
         assertEquals("ストレージ 1 件の更新を確認できませんでした", state.errorMessage)
         assertEquals(1, state.folders.size)
+    }
+
+    @Test
+    fun `同期後の並び替えがUI状態に反映される`() = runTest {
+        val repo = FakeRepository()
+        val vm = FolderListViewModel(repo, SavedStateHandle())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+
+        val a = summary(FolderKeys.create("v", "Pictures/A/"), modifiedSec = 100L)
+        val b = summary(FolderKeys.create("v", "Pictures/B/"), modifiedSec = 200L)
+
+        repo.foldersFlow.value = listOf(b, a)
+        advanceUntilIdle()
+        assertEquals(listOf(b.folderKey, a.folderKey), vm.uiState.value.folders.map { it.folderKey })
+
+        // 同期で A の最新日時が新しくなった場合、一覧を消さずに順序だけ更新する
+        val aUpdated = summary(FolderKeys.create("v", "Pictures/A/"), modifiedSec = 300L)
+        repo.foldersFlow.value = listOf(aUpdated, b)
+        advanceUntilIdle()
+        assertEquals(
+            listOf(aUpdated.folderKey, b.folderKey),
+            vm.uiState.value.folders.map { it.folderKey }
+        )
+        assertEquals(300L, vm.uiState.value.folders.first().latestModifiedSec)
     }
 
     @Test

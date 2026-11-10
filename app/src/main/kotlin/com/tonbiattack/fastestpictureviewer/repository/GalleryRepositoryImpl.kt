@@ -2,7 +2,9 @@ package com.tonbiattack.fastestpictureviewer.repository
 
 import android.os.SystemClock
 import android.util.Log
+import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
+import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
@@ -39,6 +41,7 @@ class GalleryRepositoryImpl(
     private val syncStateDao = db.syncStateDao()
     private val volumeStateDao = db.volumeSyncStateDao()
     private val favoriteDao = db.favoriteImageDao()
+    private val excludedFolderDao = db.excludedFolderDao()
 
     /** 同期の二重実行を防ぐ。実行中の要求は待たずにスキップする */
     private val syncMutex = Mutex()
@@ -56,6 +59,28 @@ class GalleryRepositoryImpl(
         imageDao.observeImages(folderKey)
 
     override fun observeFavorites(): Flow<List<FavoriteImageEntity>> = favoriteDao.observeAll()
+
+    override fun observeExcludedFolders(): Flow<List<ExcludedFolderEntity>> =
+        excludedFolderDao.observeAll()
+
+    override suspend fun excludeFolder(volumeName: String, relativePath: String) {
+        withContext(Dispatchers.IO) {
+            excludedFolderDao.add(
+                ExcludedFolderEntity(
+                    folderKey = FolderKeys.create(volumeName, relativePath),
+                    volumeName = volumeName,
+                    relativePath = FolderKeys.normalizeRelativePath(relativePath),
+                    excludedAtSec = nowSeconds()
+                )
+            )
+        }
+    }
+
+    override suspend fun includeFolder(folderKey: String) {
+        withContext(Dispatchers.IO) {
+            excludedFolderDao.remove(folderKey)
+        }
+    }
 
     override suspend fun setFavorite(itemId: String, favorite: Boolean) {
         withContext(Dispatchers.IO) {

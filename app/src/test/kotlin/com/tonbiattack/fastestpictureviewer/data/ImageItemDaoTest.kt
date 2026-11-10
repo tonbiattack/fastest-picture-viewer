@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -182,5 +183,203 @@ class ImageItemDaoTest {
         // 500 件ずつ本体を取得できる (SQLite の変数上限を超えない)
         val batch = dao.getImagesByIds(volumeIds.take(500))
         assertEquals(500, batch.size)
+    }
+
+    // --- #12 フォルダ最終更新日時順の再計算 ---
+
+    @Test
+    fun `フォルダ内の最新画像を更新すると順序が再計算される`() = runTest {
+        val dao = db.imageItemDao()
+        dao.upsertAll(
+            listOf(
+                buildItem("a", "v", "Pictures/A/", "a.jpg", modifiedSec = 100L),
+                buildItem("b", "v", "Pictures/B/", "b.jpg", modifiedSec = 200L)
+            )
+        )
+        assertEquals(
+            listOf("v:Pictures/B/", "v:Pictures/A/"),
+            dao.observeFolderSummaries().first().map { it.folderKey }
+        )
+
+        // A の画像だけを更新すると A が先頭へ移動する
+        dao.upsertAll(listOf(buildItem("a", "v", "Pictures/A/", "a.jpg", modifiedSec = 300L)))
+        assertEquals(
+            listOf("v:Pictures/A/", "v:Pictures/B/"),
+            dao.observeFolderSummaries().first().map { it.folderKey }
+        )
+    }
+
+    @Test
+    fun `フォルダ内の最新画像を削除すると残存画像の日時で再計算される`() = runTest {
+        val dao = db.imageItemDao()
+        dao.upsertAll(
+            listOf(
+                buildItem("a-old", "v", "Pictures/A/", "old.jpg", modifiedSec = 100L),
+                buildItem("a-new", "v", "Pictures/A/", "new.jpg", modifiedSec = 200L),
+                buildItem("b", "v", "Pictures/B/", "b.jpg", modifiedSec = 150L)
+            )
+        )
+        assertEquals("v:Pictures/A/", dao.observeFolderSummaries().first().first().folderKey)
+
+        dao.deleteByIds(listOf("a-new"))
+        assertEquals(
+            listOf("v:Pictures/B/", "v:Pictures/A/"),
+            dao.observeFolderSummaries().first().map { it.folderKey }
+        )
+    }
+
+    @Test
+    fun `画像の移動でフォルダ集計と並び順が更新される`() = runTest {
+        val dao = db.imageItemDao()
+        dao.upsertAll(
+            listOf(
+                buildItem("move", "v", "Pictures/A/", "a.jpg", modifiedSec = 200L),
+                buildItem("b", "v", "Pictures/B/", "b.jpg", modifiedSec = 100L)
+            )
+        )
+        // 同じ ID のまま B へ移動 (MediaStore の改名/移動に相当)
+        dao.upsertAll(listOf(buildItem("move", "v", "Pictures/B/", "b_moved.jpg", modifiedSec = 200L)))
+
+        val rows = dao.observeFolderSummaries().first()
+        assertEquals(listOf("v:Pictures/B/"), rows.map { it.folderKey })
+        assertEquals(2L, rows.first().imageCount)
+    }
+
+    @Test
+    fun `更新日時が0の画像は後方に並ぶ`() = runTest {
+        val dao = db.imageItemDao()
+        dao.upsertAll(
+            listOf(
+                buildItem("old", "v", "Pictures/Old/", "old.jpg", modifiedSec = 0L),
+                buildItem("new", "v", "Pictures/New/", "new.jpg", modifiedSec = 100L)
+            )
+        )
+        assertEquals(
+            listOf("v:Pictures/New/", "v:Pictures/Old/"),
+            dao.observeFolderSummaries().first().map { it.folderKey }
+        )
+    }
+
+    // --- #13 除外フォルダ ---
+
+    @Test
+    fun `除外フォルダと配下サブフォルダは一覧から消え同名別パスは残る`() = runTest {
+        val dao = db.imageItemDao()
+        dao.upsertAll(
+            listOf(
+                buildItem("a", "v", "Pictures/A/", "a.jpg", modifiedSec = 100L),
+                buildItem("a-sub", "v", "Pictures/A/sub/", "sub.jpg", modifiedSec = 200L),
+                buildItem("ab", "v", "Pictures/AB/", "ab.jpg", modifiedSec = 300L),
+                buildItem("b", "v", "Pictures/B/", "b.jpg", modifiedSec = 400L)
+            )
+        )
+        db.excludedFolderDao().add(
+            ExcludedFolderEntity(
+                folderKey = "v:Pictures/A/",
+                volumeName = "v",
+                relativePath = "Pictures/A/",
+                excludedAtSec = 1L
+            )
+        )
+
+        val rows = dao.observeFolderSummaries().first()
+        assertEquals(listOf("v:Pictures/B/", "v:Pictures/AB/"), rows.map { it.folderKey })
+        assertTrue(dao.observeImages("v:Pictures/A/").first().isEmpty())
+        assertEquals(1, dao.observeImages("v:Pictures/AB/").first().size)
+        assertTrue(dao.observeRepresentatives().first().none { it.folderKey == "v:Pictures/A/" })
+    }
+
+    @Test
+    fun `除外を解除すると再スキャンなしで一覧に戻る`() = runTest {
+        val dao = db.imageItemDao()
+        dao.upsertAll(listOf(buildItem("a", "v", "Pictures/A/", "a.jpg", modifiedSec = 100L)))
+        val excludedDao = db.excludedFolderDao()
+        excludedDao.add(
+            ExcludedFolderEntity("v:Pictures/A/", "v", "Pictures/A/", 1L)
+        )
+        assertTrue(dao.observeFolderSummaries().first().isEmpty())
+
+        excludedDao.remove("v:Pictures/A/")
+        assertEquals(
+            listOf("v:Pictures/A/"),
+            dao.observeFolderSummaries().first().map { it.folderKey }
+        )
+    }
+
+    @Test
+    fun `ボリューム直下の除外は同じボリューム直下の画像だけに適用される`() = runTest {
+        val dao = db.imageItemDao()
+        dao.upsertAll(
+            listOf(
+                buildItem("root", "v", "", "root.jpg", modifiedSec = 100L),
+                buildItem("sub", "v", "Pictures/", "sub.jpg", modifiedSec = 200L)
+            )
+        )
+        db.excludedFolderDao().add(
+            ExcludedFolderEntity(
+                folderKey = "v:",
+                volumeName = "v",
+                relativePath = "",
+                excludedAtSec = 1L
+            )
+        )
+        assertEquals(
+            listOf("v:Pictures/"),
+            dao.observeFolderSummaries().first().map { it.folderKey }
+        )
+    }
+
+    @Test
+    fun `同じパスでもボリュームが違えば除外は巻き込まない`() = runTest {
+        val dao = db.imageItemDao()
+        dao.upsertAll(
+            listOf(
+                buildItem("internal", "external_primary", "Pictures/A/", "a.jpg", modifiedSec = 100L),
+                buildItem("sd", "sdcard", "Pictures/A/", "b.jpg", modifiedSec = 200L)
+            )
+        )
+        db.excludedFolderDao().add(
+            ExcludedFolderEntity(
+                folderKey = "external_primary:Pictures/A/",
+                volumeName = "external_primary",
+                relativePath = "Pictures/A/",
+                excludedAtSec = 1L
+            )
+        )
+        assertEquals(
+            listOf("sdcard:Pictures/A/"),
+            dao.observeFolderSummaries().first().map { it.folderKey }
+        )
+    }
+
+    @Test
+    fun `除外中も同期更新は保持され解除後に最新状態で表示される`() = runTest {
+        val dao = db.imageItemDao()
+        dao.upsertAll(listOf(buildItem("a", "v", "Pictures/A/", "a.jpg", modifiedSec = 100L)))
+        val excludedDao = db.excludedFolderDao()
+        excludedDao.add(ExcludedFolderEntity("v:Pictures/A/", "v", "Pictures/A/", 1L))
+        assertTrue(dao.observeFolderSummaries().first().isEmpty())
+
+        // 除外中でも同期による更新は通常どおり images に反映される
+        dao.upsertAll(listOf(buildItem("a", "v", "Pictures/A/", "a.jpg", modifiedSec = 500L)))
+        excludedDao.remove("v:Pictures/A/")
+
+        val row = dao.observeFolderSummaries().first().single()
+        assertEquals("v:Pictures/A/", row.folderKey)
+        assertEquals(500L, row.latestModifiedSec)
+    }
+
+    @Test
+    fun `除外設定は保存・解除できる`() = runTest {
+        val excludedDao = db.excludedFolderDao()
+        excludedDao.add(ExcludedFolderEntity("v:Pictures/A/", "v", "Pictures/A/", 10L))
+        excludedDao.add(ExcludedFolderEntity("sd:Pictures/A/", "sd", "Pictures/A/", 20L))
+
+        assertEquals(1L, excludedDao.exists("v:Pictures/A/"))
+        assertEquals(2, excludedDao.observeAll().first().size)
+
+        excludedDao.remove("v:Pictures/A/")
+        assertEquals(0L, excludedDao.exists("v:Pictures/A/"))
+        assertEquals(1, excludedDao.observeAll().first().size)
     }
 }

@@ -13,15 +13,17 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * - sync_state:               差分同期の時刻管理 (単一行)
  * - volume_sync_state:        ボリューム単位の MediaStore 世代番号管理
  * - favorite_images:          お気に入り情報 (本体画像に変更を加えない)
+ * - excluded_folders:         フォルダ一覧から除外するフォルダ (非破壊)
  */
 @Database(
     entities = [
         ImageItem::class,
         SyncStateEntity::class,
         VolumeSyncStateEntity::class,
-        FavoriteImageEntity::class
+        FavoriteImageEntity::class,
+        ExcludedFolderEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -30,6 +32,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun syncStateDao(): SyncStateDao
     abstract fun volumeSyncStateDao(): VolumeSyncStateDao
     abstract fun favoriteImageDao(): FavoriteImageDao
+    abstract fun excludedFolderDao(): ExcludedFolderDao
 
     companion object {
         const val DATABASE_NAME = "fastest-picture-viewer.db"
@@ -40,7 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 DATABASE_NAME
-            ).addMigrations(MIGRATION_1_2).build()
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
 
         /** テスト用のメモリ DB を構築する */
         fun buildInMemory(context: Context): AppDatabase =
@@ -59,6 +62,23 @@ abstract class AppDatabase : RoomDatabase() {
                         `contentGeneration` INTEGER,
                         `lastScanSec` INTEGER NOT NULL,
                         PRIMARY KEY(`volumeName`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        /** v2 → v3: 除外フォルダテーブルを追加する。既存キャッシュは維持する。 */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `excluded_folders` (
+                        `folderKey` TEXT NOT NULL,
+                        `volumeName` TEXT NOT NULL,
+                        `relativePath` TEXT NOT NULL,
+                        `excludedAtSec` INTEGER NOT NULL,
+                        PRIMARY KEY(`folderKey`)
                     )
                     """.trimIndent()
                 )

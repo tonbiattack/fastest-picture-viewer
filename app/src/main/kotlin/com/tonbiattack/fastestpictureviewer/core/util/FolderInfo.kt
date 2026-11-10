@@ -14,6 +14,16 @@ object FolderKeys {
      */
     fun create(volumeName: String, relativePath: String): String =
         "$volumeName:$relativePath"
+
+    /**
+     * 除外判定用に相対パスを末尾スラッシュへ正規化する。
+     * 空文字はボリューム直下を表すためそのまま返す。
+     */
+    fun normalizeRelativePath(relativePath: String): String = when {
+        relativePath.isEmpty() -> ""
+        relativePath.endsWith("/") -> relativePath
+        else -> "$relativePath/"
+    }
 }
 
 /**

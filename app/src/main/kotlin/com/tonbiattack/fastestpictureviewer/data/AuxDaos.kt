@@ -37,6 +37,23 @@ interface VolumeSyncStateDao {
     suspend fun remove(volumeName: String)
 }
 
+/** 除外フォルダの DAO */
+@Dao
+interface ExcludedFolderDao {
+
+    @Query("SELECT * FROM excluded_folders ORDER BY excludedAtSec DESC, folderKey ASC")
+    fun observeAll(): Flow<List<ExcludedFolderEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun add(entity: ExcludedFolderEntity)
+
+    @Query("DELETE FROM excluded_folders WHERE folderKey = :folderKey")
+    suspend fun remove(folderKey: String)
+
+    @Query("SELECT COUNT(*) FROM excluded_folders WHERE folderKey = :folderKey")
+    suspend fun exists(folderKey: String): Long
+}
+
 /** お気に入りの DAO */
 @Dao
 interface FavoriteImageDao {

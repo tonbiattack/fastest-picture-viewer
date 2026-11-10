@@ -42,6 +42,27 @@ data class VolumeSyncStateEntity(
 )
 
 /**
+ * フォルダ一覧から除外するフォルダ。
+ *
+ * [relativePath] は末尾スラッシュに正規化したパス接頭辞で、配下のサブフォルダにも適用する。
+ * 元の画像ファイルには一切変更を加えない非破壊の設定。
+ */
+@Entity(tableName = "excluded_folders")
+data class ExcludedFolderEntity(
+    /** 除外したフォルダの識別子 (volumeName:relativePath) */
+    @PrimaryKey @ColumnInfo(name = "folderKey") val folderKey: String,
+
+    /** MediaStore のボリューム名 */
+    @ColumnInfo(name = "volumeName") val volumeName: String,
+
+    /** 正規化済みの相対パス (末尾スラッシュあり)。空文字はボリューム直下のみを表す */
+    @ColumnInfo(name = "relativePath") val relativePath: String,
+
+    /** 除外した日時 (エポック秒) */
+    @ColumnInfo(name = "excludedAtSec") val excludedAtSec: Long
+)
+
+/**
  * お気に入り。画像ファイル本体には一切変更を加えず、DB 内のフラグだけで管理する。
  * 別テーブルにすることで、走査による images の再 upsert でお気に入りが失われない。
  */
