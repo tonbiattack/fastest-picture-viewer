@@ -54,6 +54,23 @@ interface ExcludedFolderDao {
     suspend fun exists(folderKey: String): Long
 }
 
+/** フォルダ単位のお気に入りの DAO */
+@Dao
+interface FavoriteFolderDao {
+
+    @Query("SELECT * FROM favorite_folders ORDER BY addedAtSec DESC, folderKey ASC")
+    fun observeAll(): Flow<List<FavoriteFolderEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun add(entity: FavoriteFolderEntity)
+
+    @Query("DELETE FROM favorite_folders WHERE folderKey = :folderKey")
+    suspend fun remove(folderKey: String)
+
+    @Query("SELECT COUNT(*) FROM favorite_folders WHERE folderKey = :folderKey")
+    suspend fun exists(folderKey: String): Long
+}
+
 /** お気に入りの DAO */
 @Dao
 interface FavoriteImageDao {

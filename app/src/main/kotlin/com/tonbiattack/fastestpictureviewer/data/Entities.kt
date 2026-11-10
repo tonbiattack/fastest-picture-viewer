@@ -63,6 +63,27 @@ data class ExcludedFolderEntity(
 )
 
 /**
+ * フォルダ単位のお気に入り。
+ *
+ * 画像単位のお気に入り ([FavoriteImageEntity]) とは別テーブルで管理する。
+ * 元の画像ファイルには変更を加えず、画像の追加/削除や同期では消えない。
+ */
+@Entity(tableName = "favorite_folders")
+data class FavoriteFolderEntity(
+    /** フォルダ識別子 (volumeName:relativePath) */
+    @PrimaryKey @ColumnInfo(name = "folderKey") val folderKey: String,
+
+    /** MediaStore のボリューム名 */
+    @ColumnInfo(name = "volumeName") val volumeName: String,
+
+    /** 相対パス (MediaStore の RELATIVE_PATH) */
+    @ColumnInfo(name = "relativePath") val relativePath: String,
+
+    /** 登録日時 (エポック秒) */
+    @ColumnInfo(name = "addedAtSec") val addedAtSec: Long
+)
+
+/**
  * お気に入り。画像ファイル本体には一切変更を加えず、DB 内のフラグだけで管理する。
  * 別テーブルにすることで、走査による images の再 upsert でお気に入りが失われない。
  */

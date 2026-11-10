@@ -5,6 +5,7 @@ import android.util.Log
 import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
+import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
@@ -42,6 +43,7 @@ class GalleryRepositoryImpl(
     private val syncStateDao = db.syncStateDao()
     private val volumeStateDao = db.volumeSyncStateDao()
     private val favoriteDao = db.favoriteImageDao()
+    private val favoriteFolderDao = db.favoriteFolderDao()
     private val excludedFolderDao = db.excludedFolderDao()
 
     /** 同期の二重実行を防ぐ。実行中の要求は待たずにスキップする */
@@ -82,6 +84,32 @@ class GalleryRepositoryImpl(
         // 画面を離れた直後でも解除が失われないよう、キャンセル不可で書き込む
         withContext(Dispatchers.IO + NonCancellable) {
             excludedFolderDao.remove(folderKey)
+        }
+    }
+
+    override fun observeFavoriteFolders(): Flow<List<FavoriteFolderEntity>> =
+        favoriteFolderDao.observeAll()
+
+    override suspend fun setFolderFavorite(
+        folderKey: String,
+        volumeName: String,
+        relativePath: String,
+        favorite: Boolean
+    ) {
+        // 画面を離れた直後でも登録/解除が失われないよう、キャンセル不可で書き込む
+        withContext(Dispatchers.IO + NonCancellable) {
+            if (favorite) {
+                favoriteFolderDao.add(
+                    FavoriteFolderEntity(
+                        folderKey = folderKey,
+                        volumeName = volumeName,
+                        relativePath = relativePath,
+                        addedAtSec = nowSeconds()
+                    )
+                )
+            } else {
+                favoriteFolderDao.remove(folderKey)
+            }
         }
     }
 

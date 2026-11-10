@@ -3,6 +3,7 @@ package com.tonbiattack.fastestpictureviewer.ui.folder
 import androidx.lifecycle.SavedStateHandle
 import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
+import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
@@ -40,6 +41,15 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class FolderListViewModelTest {
 
+    /** テスト用の列数設定 */
+    private class FakeViewSettings(initial: Int = 2) : FolderViewSettings {
+        private val _columnCount = MutableStateFlow(initial)
+        override val columnCount: StateFlow<Int> = _columnCount
+        override fun setColumnCount(count: Int) {
+            _columnCount.value = count.coerceIn(1, 4)
+        }
+    }
+
     /** テスト用の固定リポジトリ */
     private class FakeRepository : GalleryRepository {
         val foldersFlow = MutableStateFlow<List<FolderSummaryRow>>(emptyList())
@@ -69,6 +79,17 @@ class FolderListViewModelTest {
         override suspend fun excludeFolder(volumeName: String, relativePath: String) = Unit
 
         override suspend fun includeFolder(folderKey: String) = Unit
+
+        val favoriteFoldersFlow = MutableStateFlow<List<FavoriteFolderEntity>>(emptyList())
+
+        override fun observeFavoriteFolders(): Flow<List<FavoriteFolderEntity>> = favoriteFoldersFlow
+
+        override suspend fun setFolderFavorite(
+            folderKey: String,
+            volumeName: String,
+            relativePath: String,
+            favorite: Boolean
+        ) = Unit
     }
 
     @Before
@@ -101,7 +122,7 @@ class FolderListViewModelTest {
     @Test
     fun `同期開始中でも既存の一覧はクリアされない`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, SavedStateHandle())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
         // StateFlow は購読されないと開始しないため、背景で購読する
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
@@ -129,7 +150,7 @@ class FolderListViewModelTest {
     @Test
     fun `キャッシュが全く無い初回スキャン中は進捗表示になる`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, SavedStateHandle())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         repo.statusFlow.value = SyncStatus(isRunning = true, isInitialScan = true)
@@ -141,7 +162,7 @@ class FolderListViewModelTest {
     @Test
     fun `同期失敗メッセージは一覧とは別に保持される`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, SavedStateHandle())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val key = FolderKeys.create("v", "Pictures/a/")
@@ -162,7 +183,7 @@ class FolderListViewModelTest {
     @Test
     fun `同期後の並び替えがUI状態に反映される`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, SavedStateHandle())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val a = summary(FolderKeys.create("v", "Pictures/A/"), modifiedSec = 100L)
@@ -184,9 +205,117 @@ class FolderListViewModelTest {
     }
 
     @Test
+    fun `検索は大文字小文字を区別せず部分一致で絞り込む`() = runTest {
+        val repo = FakeRepository()
+        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+
+        val chatGpt = summary(FolderKeys.create("v", "Pictures/ChatGPT/"))
+        val camera = summary(FolderKeys.create("v", "Pictures/Camera/"))
+        repo.foldersFlow.value = listOf(chatGpt, camera)
+        advanceUntilIdle()
+
+        vm.onSearchQueryChange("chatg")
+        advanceUntilIdle()
+        assertEquals(listOf(chatGpt.folderKey), vm.uiState.value.folders.map { it.folderKey })
+
+        vm.onSearchQueryChange("CAM")
+        advanceUntilIdle()
+        assertEquals(listOf(camera.folderKey), vm.uiState.value.folders.map { it.folderKey })
+
+        vm.clearSearch()
+        advanceUntilIdle()
+        assertEquals(2, vm.uiState.value.folders.size)
+    }
+
+    @Test
+    fun `日本語フォルダ名でも部分一致検索できる`() = runTest {
+        val repo = FakeRepository()
+        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+
+        val trip = summary(FolderKeys.create("v", "Pictures/旅行写真/"))
+        val food = summary(FolderKeys.create("v", "Pictures/食べ物/"))
+        repo.foldersFlow.value = listOf(trip, food)
+        advanceUntilIdle()
+
+        vm.onSearchQueryChange("旅行")
+        advanceUntilIdle()
+        assertEquals(listOf(trip.folderKey), vm.uiState.value.folders.map { it.folderKey })
+    }
+
+    @Test
+    fun `お気に入りのみ表示で絞り込める`() = runTest {
+        val repo = FakeRepository()
+        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+
+        val favoriteKey = FolderKeys.create("v", "Pictures/Favorite/")
+        val otherKey = FolderKeys.create("v", "Pictures/Other/")
+        repo.foldersFlow.value = listOf(summary(favoriteKey), summary(otherKey))
+        repo.favoriteFoldersFlow.value = listOf(
+            FavoriteFolderEntity(favoriteKey, "v", "Pictures/Favorite/", 1L)
+        )
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.folders.first { it.folderKey == favoriteKey }.isFavorite)
+        assertFalse(vm.uiState.value.folders.first { it.folderKey == otherKey }.isFavorite)
+
+        vm.toggleFavoritesOnly()
+        advanceUntilIdle()
+        assertEquals(listOf(favoriteKey), vm.uiState.value.folders.map { it.folderKey })
+        assertTrue(vm.uiState.value.favoritesOnly)
+
+        vm.toggleFavoritesOnly()
+        advanceUntilIdle()
+        assertEquals(2, vm.uiState.value.folders.size)
+    }
+
+    @Test
+    fun `検索とお気に入りフィルタを併用できる`() = runTest {
+        val repo = FakeRepository()
+        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+
+        val favoriteA = FolderKeys.create("v", "Pictures/TravelA/")
+        val favoriteB = FolderKeys.create("v", "Pictures/TravelB/")
+        repo.foldersFlow.value = listOf(summary(favoriteA), summary(favoriteB))
+        repo.favoriteFoldersFlow.value = listOf(
+            FavoriteFolderEntity(favoriteA, "v", "Pictures/TravelA/", 1L),
+            FavoriteFolderEntity(favoriteB, "v", "Pictures/TravelB/", 2L)
+        )
+        advanceUntilIdle()
+
+        vm.toggleFavoritesOnly()
+        vm.onSearchQueryChange("TravelA")
+        advanceUntilIdle()
+
+        assertEquals(listOf(favoriteA), vm.uiState.value.folders.map { it.folderKey })
+    }
+
+    @Test
+    fun `列数を変更すると設定とUI状態に即時反映される`() = runTest {
+        val settings = FakeViewSettings(initial = 3)
+        val vm = FolderListViewModel(FakeRepository(), settings, SavedStateHandle())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+        assertEquals(3, vm.uiState.value.columnCount)
+
+        vm.setColumnCount(4)
+        advanceUntilIdle()
+        assertEquals(4, vm.uiState.value.columnCount)
+        assertEquals(4, settings.columnCount.value)
+
+        // 範囲外は 1〜4 に丸める
+        vm.setColumnCount(9)
+        advanceUntilIdle()
+        assertEquals(4, vm.uiState.value.columnCount)
+    }
+
+    @Test
     fun `スクロール位置はSavedStateHandleを通じて保存と復元ができる`() = runTest {
         val handle = SavedStateHandle(mapOf(folderListScrollKey to 7))
-        val vm = FolderListViewModel(FakeRepository(), handle)
+        val vm = FolderListViewModel(FakeRepository(), FakeViewSettings(), handle)
         assertEquals(7, vm.initialScrollIndex())
 
         vm.saveScrollIndex(42)

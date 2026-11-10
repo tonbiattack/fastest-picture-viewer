@@ -83,6 +83,16 @@ fun AppNavHost(
                         )
                     }
                 },
+                onSetFolderFavorite = { folder, favorite ->
+                    scope.launch {
+                        container.repository.setFolderFavorite(
+                            folderKey = folder.folderKey,
+                            volumeName = folder.volumeName,
+                            relativePath = folder.relativePath,
+                            favorite = favorite
+                        )
+                    }
+                },
                 onOpenFolder = { folder ->
                     navController.navigate(Routes.imageGrid(folder.folderKey))
                 }
