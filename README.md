@@ -1,8 +1,17 @@
 # fastest-picture-viewer
 
-**Android向け・表示速度最優先の画像ビューア**（開発準備中）
+**OPPO Reno13 A専用・表示速度最優先の個人用Android画像ビューア**（MVP実装済み・実機検証待ち）
 
 内部ストレージやSDカードに保存された大量の画像を、フォルダ単位で素早く閲覧することを目指すアプリです。多機能化よりも、**起動・復帰・画面遷移のたびに待たされないこと**を優先します。
+
+## 最終ゴール・配布方針
+
+- **唯一の利用対象:** 個人所有の **OPPO Reno13 A**。端末のAndroidバージョン・ColorOSバージョン・空き容量・SDカード使用有無はADB/実機で確認する
+- **完成条件:** 自分のスマホにAPKをインストールし、普段使う画像フォルダをストレスなく閲覧でき、起動・復帰・戻る操作で一覧が不必要に消えない
+- **配布:** Google Playストアには公開しない。一般ユーザー向けの互換性・審査・配布基盤は作らない
+- **導入・更新:** Windows PCからUSBデバッグ + ADBでAPKをインストール/上書きする。長期利用は固定のapplicationIdと安全に保管した専用署名鍵で署名したAPKを使う（鍵・パスワードはGitにコミットしない）
+- **検証:** OPPO Reno13 Aでの実機確認を必須とし、エミュレーターや大規模なE2E基盤は必要時のみ。実装・Gradleテスト・APK生成・ADB導入・ログ収集は可能な限りAIで自動化する
+- **範囲外:** Playストア申請、ストア向け説明文、公開用プライバシーポリシー、広告・課金・アカウント、機種横断の網羅的動作保証
 
 ## 解決したい課題
 
@@ -25,8 +34,20 @@
 | P0 | Androidの内部ストレージ・SDカードへの対応 |
 | P1 | バックグラウンド差分同期と更新失敗時のキャッシュ保護 |
 | P1 | サムネイルのディスクキャッシュ・画像の先読み |
+| P1 | 除外フォルダの指定・解除（非破壊・設定画面から解除可能） |
+| P1 | フォルダ一覧の複数列グリッド（1〜4列・列数を永続化） |
+| P1 | フォルダ名の検索・絞り込み（部分一致・大文字小文字無視） |
+| P1 | フォルダお気に入りと「お気に入りのみ」表示 |
+| P1 | フォルダカードの長押しメニュー（⋮を常時表示しない） |
+| P1 | フォルダ一覧・画像一覧のドラッグ可能な高速スクローラー |
+| P1 | フォルダ内画像の自然順ソート（7→8→10、先頭ゼロ・複数数値対応） |
+| P1 | 画像単位のお気に入りのワンタップ登録/解除とカード星表示 |
+| P1 | お気に入り画像のフォルダ別・全件まとめて閲覧 |
+| P1 | フォルダ別の画像一覧スクロール位置の保存・復元 |
+| P1 | コンパクトな画像一覧ヘッダーとフォルダ名の全文表示 |
+| P1 | アプリ全体の常時ダークテーマ |
+| P2 | フォルダ一覧の最近閲覧順の並び替え |
 | P1 | 起動時間・復帰時間・メモリ使用量の計測とテスト |
-| P2 | お気に入り機能（速度への影響を確認してから検討） |
 
 想定する画像数は最低2,000枚以上。キャッシュ済みのフォルダ一覧を起動後200ms以内に表示することを初期性能目標とし、実機計測で見直します。
 
@@ -44,6 +65,9 @@
 ## 開発ドキュメント
 
 - [仕様書（最新版）](docs/specification.md)
+- [Windows 11 ビルド・テスト環境手順](docs/build-environment.md)
+- [実機（OPPO Reno13 A）検証手順](docs/device-verification.md)
+- [署名鍵の運用方針](docs/signing-policy.md)
 - [実装指示の参考資料](docs/gpt/spec.md)
 - [既存ギャラリーの課題分析](docs/gpt/既存分析.md)
 - [過去の設計メモ](docs/gpt/old/仕様.md)
@@ -51,10 +75,86 @@
 
 ## 開発状況
 
-現在は仕様策定・Issue整理の段階です。基本機能は未実装です。
+P0 イシュー (#1〜#4) の MVP と、P1 の一部 (#5 差分同期・#6 サムネイルキャッシュ) を実装済み
+(Kotlin / Compose / Room / Coil / MediaStore)。
 
-実装は [#1 Androidアプリ基盤](https://github.com/tonbiattack/fastest-picture-viewer/issues/1) → [#2 永続キャッシュ](https://github.com/tonbiattack/fastest-picture-viewer/issues/2) → [#3 一覧保持](https://github.com/tonbiattack/fastest-picture-viewer/issues/3) → [#4 状態復元](https://github.com/tonbiattack/fastest-picture-viewer/issues/4) を優先します。
+- フォルダ一覧 (Room キャッシュ即表示・更新日時降順) / フォルダ内グリッド (ファイル名昇順) / 画像ビューア (ページャ・ズーム)
+- 権限: Android 14 部分アクセスも含めたレベル判定。権限拒否時はキャッシュを消さず案内表示
+- 同期: MediaStore の世代番号で変更のないボリュームをスキップ。変更時は削除・改名・移動も反映。
+  MediaStore 変更通知と起動・復帰時の差分走査、手動更新の完全走査に対応。失敗時は当該ボリュームのキャッシュを保持
+- サムネイル: Coil のメモリ/ディスクキャッシュを更新日時キーで管理。ビューアの前後 1 枚を先読みし、
+  メモリ逼迫時はメモリキャッシュのみ解放。キャッシュクリア UI 付き
+- フォルダ並び順: フォルダ内画像の `MAX(dateModified)` 降順。同値はフォルダキー昇順で安定
+- 除外フォルダ: 一覧メニューから除外、設定画面から解除。親フォルダは配下に適用し、元ファイルは変更しない
+- フォルダ一覧: 1〜4列のグリッド表示。列数は再起動後も維持
+- 検索: フォルダ名の部分一致（大文字小文字無視・日本語対応）。キャッシュ済みデータのみを対象
+- フォルダお気に入り: セルの長押しメニューから登録/解除し、「お気に入りのみ」で絞り込み。検索・除外と併用可能
+- フォルダ操作: 短押しで開く、長押し＋ハプティックでお気に入り/除外メニュー。⋮は常時表示しない
+- 高速スクロール: フォルダ一覧・画像一覧の右端つまみをドラッグして先頭/末尾へ移動
+- 画像の並び: ファイル名の自然順昇順（数字列を数値比較）。DB v5 のソートキーとインデックスを使用し、
+  既存キャッシュはフォルダを開いたときに遅延バックフィル
+- 画像お気に入り: ビューアの★でワンタップ登録/解除。フォルダお気に入りと独立。
+  カード右上の星からも直接切り替え（登録=黄色★、未登録=輪郭☆）
+- お気に入り画像: オーバーフローメニューからフォルダ別/全件表示。全件はフォルダ更新日時順→自然順で連結
+- スクロール復元: フォルダ別にアンカーIDとオフセットを Room に保存し、再入場・再起動後に復元
+- ヘッダー: 画像一覧のフォルダ名を1行省略表示し、タップで全文ダイアログ
+- テーマ: 端末設定にかかわらず常時ダーク。起動時の白フラッシュを防止
+- 並び順: 更新日時順 / 最近閲覧順を切り替え可能。設定は再起動後も維持
+- 状態復元: ViewModel + SavedStateHandle でフォルダ・スクロール・閲覧位置を復元
+- テスト: Robolectric による Room DAO 検証、差分計算・同期ポリシー・ViewModel の単体テスト (`gradlew :app:testDebugUnitTest`)
+
+PR #8 は未マージ。2026-11-10 に OPPO Reno13 A (ColorOS 16.0.5 / Android 16 / API 36) で実機検証を実施した。
+画像 350,955 件・フォルダ 2,640 件で、キャッシュあり起動 TotalTime は平均 1.35 秒、一覧初回表示は 1.5〜2.1 秒。
+一覧↔詳細の 100 往復で空白表示・クラッシュなし。参考目標 200ms はこの規模では未達。
+SD カード抜き差し・権限拒否時の挙動は未検証で、詳細は [実機検証手順](docs/device-verification.md) に記録している。
 
 ## プライバシー
 
 端末内の画像をオフラインで閲覧する方針です。画像や閲覧履歴を外部サーバへ送信する機能は設けません。
+
+## ビルド・テスト
+
+```bash
+# 単体テスト (Robolectric / 純粋ロジック)
+gradlew :app:testDebugUnitTest
+
+# デバッグ APK のビルド
+gradlew :app:assembleDebug
+```
+
+Windows では環境確認とテスト・ビルドをまとめて再実行できます。
+
+```powershell
+# 初回のみ: cmdline-tools の配置と環境変数設定
+powershell -ExecutionPolicy Bypass -File scripts\setup-android-env.ps1
+
+# 環境確認
+powershell -ExecutionPolicy Bypass -File scripts\check-env.ps1
+
+# 単体テスト + debug APK ビルド
+powershell -ExecutionPolicy Bypass -File scripts\build-and-test.ps1
+
+# 実機（接続・導入・計測・ログ）
+powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Devices
+```
+
+実機検証の詳細は [実機（OPPO Reno13 A）検証手順](docs/device-verification.md) を参照してください。
+
+Android SDK (compileSdk 36) と JDK 17 以上が必要です。SDK の場所が標準でない場合は `local.properties` に `sdk.dir` を設定してください。詳細は [Windows 11 ビルド・テスト環境手順](docs/build-environment.md) を参照してください。
+
+## OPPO Reno13 Aへの導入・更新（Windows PowerShell）
+
+PR #8 が未マージの間は `feature/p0-mvp` ブランチを利用する。
+
+```powershell
+git fetch origin
+git switch feature/p0-mvp
+.\gradlew.bat :app:testDebugUnitTest
+.\gradlew.bat :app:assembleDebug
+adb devices
+adb install -r .\app\build\outputs\apk\debug\app-debug.apk
+```
+
+※ 上記は**開発・初回確認用のデバッグAPK**。上書きには同じ `applicationId` と署名鍵が必要。別の鍵に変更すると通常は上書きできず、アンインストールはアプリ内データ/キャッシュを消すため、個人利用の本番運用前に固定のリリース署名を整備する。実機側で開発者向けオプションとUSBデバッグを許可する。端末のAndroid/ColorOSバージョン、USB接続・権限の挙動を確認して記録する。
+
+[個人端末向け受け入れ手順](docs/specification.md#9-個人端末での受け入れテスト)
