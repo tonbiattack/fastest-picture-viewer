@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.tonbiattack.fastestpictureviewer.core.util.FolderNames
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
+import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -50,6 +51,9 @@ data class FolderListUiState(
     /** お気に入りのみ表示中か */
     val favoritesOnly: Boolean = false,
 
+    /** フォルダ一覧の並び順 */
+    val sortMode: FolderSortMode = FolderSortMode.LATEST,
+
     /** 背景同期中かどうか */
     val isSyncing: Boolean = false,
 
@@ -70,7 +74,8 @@ data class FolderListUiState(
 private data class FolderDataSource(
     val summaries: List<FolderSummaryRow>,
     val representatives: List<RepresentativeImageRow>,
-    val favoriteKeys: Set<String>
+    val favoriteKeys: Set<String>,
+    val recentOpened: Map<String, Long>
 )
 
 /** 検索とお気に入りフィルタ */
@@ -108,12 +113,14 @@ class FolderListViewModel(
         repository.observeFolderSummaries(),
         // 代表サムネイル・お気に入りの到着を待たず、フォルダ一覧を先に表示する
         repository.observeRepresentatives().onStart { emit(emptyList()) },
-        repository.observeFavoriteFolders().onStart { emit(emptyList()) }
-    ) { summaries, representatives: List<RepresentativeImageRow>, favorites: List<FavoriteFolderEntity> ->
+        repository.observeFavoriteFolders().onStart { emit(emptyList()) },
+        repository.observeRecentFolders().onStart { emit(emptyList()) }
+    ) { summaries, representatives: List<RepresentativeImageRow>, favorites: List<FavoriteFolderEntity>, recent: List<RecentFolderEntity> ->
         FolderDataSource(
             summaries = summaries,
             representatives = representatives,
-            favoriteKeys = favorites.mapTo(hashSetOf()) { it.folderKey }
+            favoriteKeys = favorites.mapTo(hashSetOf()) { it.folderKey },
+            recentOpened = recent.associate { it.folderKey to it.openedAtSec }
         )
     }
 
@@ -133,8 +140,9 @@ class FolderListViewModel(
                     dataSource,
                     repository.syncStatus,
                     viewSettings.columnCount,
+                    viewSettings.sortMode,
                     filterFlow
-                ) { data, status, columns, filter ->
+                ) { data, status, columns, sortMode, filter ->
                     if (!firstFrameLogged && data.summaries.isNotEmpty()) {
                         firstFrameLogged = true
                         val elapsedMs = (System.nanoTime() - startedAtNanos) / 1_000_000
@@ -145,7 +153,19 @@ class FolderListViewModel(
                         representatives = data.representatives,
                         favoriteKeys = data.favoriteKeys
                     )
-                    val visibleFolders = allFolders.filter { folder ->
+                    val sortedFolders = when (sortMode) {
+                        FolderSortMode.LATEST -> allFolders
+                        FolderSortMode.RECENT -> allFolders.sortedWith(
+                            compareBy<FolderUiModel> {
+                                // 閲覧済み (false) を未閲覧 (true) より先に並べる
+                                data.recentOpened[it.folderKey] == null
+                            }
+                                .thenByDescending { data.recentOpened[it.folderKey] ?: 0L }
+                                .thenByDescending { it.latestModifiedSec }
+                                .thenBy { it.folderKey }
+                        )
+                    }
+                    val visibleFolders = sortedFolders.filter { folder ->
                         val matchesQuery = filter.query.isBlank() ||
                             folder.folderName.contains(filter.query, ignoreCase = true)
                         val matchesFavorite = !filter.favoritesOnly || folder.isFavorite
@@ -159,6 +179,7 @@ class FolderListViewModel(
                         columnCount = columns,
                         searchQuery = filter.query,
                         favoritesOnly = filter.favoritesOnly,
+                        sortMode = sortMode,
                         isSyncing = status.isRunning,
                         isInitialScan = status.isInitialScan,
                         errorMessage = status.errorMessage
@@ -190,6 +211,11 @@ class FolderListViewModel(
     /** 列数を変更して永続化する */
     fun setColumnCount(count: Int) {
         viewSettings.setColumnCount(count)
+    }
+
+    /** 並び順を変更して永続化する */
+    fun setSortMode(mode: FolderSortMode) {
+        viewSettings.setSortMode(mode)
     }
 
     /** スクロール位置をプロセス死に耐える形で保存する */

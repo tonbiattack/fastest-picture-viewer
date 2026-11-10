@@ -13,6 +13,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -108,6 +109,31 @@ fun ImageViewerScreen(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "戻る"
                         )
+                    }
+                },
+                actions = {
+                    val currentImage = state.images.getOrNull(pagerState.currentPage)
+                    if (currentImage != null) {
+                        val isFavorite = currentImage.id in state.favoriteIds
+                        IconButton(
+                            onClick = {
+                                viewModel.toggleFavorite(currentImage.id, isFavorite)
+                            }
+                        ) {
+                            Icon(
+                                Icons.Filled.Star,
+                                contentDescription = if (isFavorite) {
+                                    "画像のお気に入りから解除"
+                                } else {
+                                    "画像のお気に入りに追加"
+                                },
+                                tint = if (isFavorite) {
+                                    Color(0xFFFFC107)
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
                     }
                 }
             )

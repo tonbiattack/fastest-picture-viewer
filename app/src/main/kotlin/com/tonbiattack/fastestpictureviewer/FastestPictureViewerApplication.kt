@@ -11,6 +11,7 @@ import com.tonbiattack.fastestpictureviewer.data.AppDatabase
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepositoryImpl
+import com.tonbiattack.fastestpictureviewer.ui.favorites.FavoriteImagesViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.ExcludedFoldersViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.FolderListViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.FolderViewSettings
@@ -61,6 +62,8 @@ class AppContainer(
                     FolderListViewModel(repository, folderViewSettings, savedStateHandle)
                 modelClass.isAssignableFrom(ExcludedFoldersViewModel::class.java) ->
                     ExcludedFoldersViewModel(repository)
+                modelClass.isAssignableFrom(FavoriteImagesViewModel::class.java) ->
+                    FavoriteImagesViewModel(repository)
                 modelClass.isAssignableFrom(ImageGridViewModel::class.java) ->
                     ImageGridViewModel(repository, savedStateHandle)
                 modelClass.isAssignableFrom(ImageViewerViewModel::class.java) ->

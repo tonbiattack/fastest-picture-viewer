@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Compose アプリ用のシンプルなテーマ -->
-    <style name="Theme.FastestPictureViewer" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
+    <!-- Compose アプリ用のダークテーマ。起動時の白フラッシュを避ける -->
+    <style name="Theme.FastestPictureViewer" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#121212</item>
+        <item name="android:statusBarColor">#121212</item>
+        <item name="android:navigationBarColor">#121212</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:forceDarkAllowed">false</item>
     </style>
 </resources>

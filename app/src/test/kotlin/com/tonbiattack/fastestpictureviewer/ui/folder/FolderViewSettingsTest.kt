@@ -49,4 +49,19 @@ class FolderViewSettingsTest {
         settings.setColumnCount(0)
         assertEquals(1, settings.columnCount.value)
     }
+
+    @Test
+    fun `既定の並び順は更新日時順`() {
+        val settings = SharedPreferencesFolderViewSettings(context)
+        assertEquals(FolderSortMode.LATEST, settings.sortMode.value)
+    }
+
+    @Test
+    fun `変更した並び順は別インスタンスでも維持される`() {
+        val first = SharedPreferencesFolderViewSettings(context)
+        first.setSortMode(FolderSortMode.RECENT)
+
+        val second = SharedPreferencesFolderViewSettings(context)
+        assertEquals(FolderSortMode.RECENT, second.sortMode.value)
+    }
 }

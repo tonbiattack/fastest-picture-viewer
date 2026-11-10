@@ -13,6 +13,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.tonbiattack.fastestpictureviewer.AppContainer
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
+import com.tonbiattack.fastestpictureviewer.ui.favorites.FavoriteImagesScreen
+import com.tonbiattack.fastestpictureviewer.ui.favorites.FavoriteImagesViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.ExcludedFoldersScreen
 import com.tonbiattack.fastestpictureviewer.ui.folder.ExcludedFoldersViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.FolderListScreen
@@ -27,15 +29,19 @@ import kotlinx.coroutines.launch
 object Routes {
     const val FOLDER_LIST = "folders"
     const val EXCLUDED_FOLDERS = "excluded-folders"
+    const val FAVORITES = "favorites"
     const val IMAGE_GRID = "images/{folderKey}"
-    const val IMAGE_VIEWER = "viewer/{folderKey}/{startIndex}"
+    const val IMAGE_VIEWER = "viewer/{folderKey}/{startIndex}?favoritesOnly={favoritesOnly}"
 
     /** フォルダ識別子に "/" や ":" を含むため、全特殊文字をエンコードして渡す */
     private fun encode(folderKey: String): String = Uri.encode(folderKey, "")
 
     fun imageGrid(folderKey: String): String = "images/${encode(folderKey)}"
-    fun imageViewer(folderKey: String, index: Int): String =
-        "viewer/${encode(folderKey)}/$index"
+    fun imageViewer(
+        folderKey: String,
+        index: Int,
+        favoritesOnly: Boolean = false
+    ): String = "viewer/${encode(folderKey)}/$index?favoritesOnly=$favoritesOnly"
 }
 
 /**
@@ -72,6 +78,9 @@ fun AppNavHost(
                 onClearImageCache = {
                     scope.launch { container.clearImageCaches() }
                 },
+                onOpenFavorites = {
+                    navController.navigate(Routes.FAVORITES)
+                },
                 onOpenExcludedFolders = {
                     navController.navigate(Routes.EXCLUDED_FOLDERS)
                 },
@@ -94,6 +103,10 @@ fun AppNavHost(
                     }
                 },
                 onOpenFolder = { folder ->
+                    // 最近閲覧順の履歴を更新してから開く (画像のページ移動では更新しない)
+                    scope.launch {
+                        container.repository.markFolderOpened(folder.folderKey)
+                    }
                     navController.navigate(Routes.imageGrid(folder.folderKey))
                 }
             )
@@ -104,6 +117,23 @@ fun AppNavHost(
             ExcludedFoldersScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.FAVORITES) {
+            val viewModel: FavoriteImagesViewModel = viewModel(factory = factory)
+            FavoriteImagesScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onOpenFavoriteImage = { folderKey, index ->
+                    navController.navigate(
+                        Routes.imageViewer(
+                            folderKey = folderKey ?: ImageViewerViewModel.ALL_FAVORITES,
+                            index = index,
+                            favoritesOnly = true
+                        )
+                    )
+                }
             )
         }
 
@@ -127,7 +157,11 @@ fun AppNavHost(
             route = Routes.IMAGE_VIEWER,
             arguments = listOf(
                 navArgument("folderKey") { type = NavType.StringType },
-                navArgument("startIndex") { type = NavType.IntType }
+                navArgument("startIndex") { type = NavType.IntType },
+                navArgument("favoritesOnly") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                }
             )
         ) {
             val viewModel: ImageViewerViewModel = viewModel(factory = factory)

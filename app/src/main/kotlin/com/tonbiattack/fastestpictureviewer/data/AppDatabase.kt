@@ -15,6 +15,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * - favorite_images:          画像単位のお気に入り (本体画像に変更を加えない)
  * - favorite_folders:         フォルダ単位のお気に入り
  * - excluded_folders:         フォルダ一覧から除外するフォルダ (非破壊)
+ * - folder_scroll_positions:  フォルダ別の画像一覧スクロール位置
+ * - recent_folders:           最近閲覧したフォルダ
  */
 @Database(
     entities = [
@@ -23,9 +25,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         VolumeSyncStateEntity::class,
         FavoriteImageEntity::class,
         FavoriteFolderEntity::class,
-        ExcludedFolderEntity::class
+        ExcludedFolderEntity::class,
+        FolderScrollPositionEntity::class,
+        RecentFolderEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -36,6 +40,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun favoriteImageDao(): FavoriteImageDao
     abstract fun favoriteFolderDao(): FavoriteFolderDao
     abstract fun excludedFolderDao(): ExcludedFolderDao
+    abstract fun folderScrollPositionDao(): FolderScrollPositionDao
+    abstract fun recentFolderDao(): RecentFolderDao
 
     companion object {
         const val DATABASE_NAME = "fastest-picture-viewer.db"
@@ -46,7 +52,13 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 DATABASE_NAME
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
+            ).addMigrations(
+                MIGRATION_1_2,
+                MIGRATION_2_3,
+                MIGRATION_3_4,
+                MIGRATION_4_5,
+                MIGRATION_5_6
+            ).build()
 
         /** テスト用のメモリ DB を構築する */
         fun buildInMemory(context: Context): AppDatabase =
@@ -120,6 +132,33 @@ abstract class AppDatabase : RoomDatabase() {
                     """
                     CREATE INDEX IF NOT EXISTS `index_images_folderKey_naturalSortKey_sortName_mediaId`
                     ON `images` (`folderKey`, `naturalSortKey`, `sortName`, `mediaId`)
+                    """.trimIndent()
+                )
+            }
+        }
+
+        /** v5 → v6: フォルダ別スクロール位置と最近閲覧フォルダを追加する。 */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `folder_scroll_positions` (
+                        `folderKey` TEXT NOT NULL,
+                        `anchorItemId` TEXT,
+                        `anchorIndex` INTEGER NOT NULL,
+                        `anchorOffsetPx` INTEGER NOT NULL,
+                        `updatedAtSec` INTEGER NOT NULL,
+                        PRIMARY KEY(`folderKey`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `recent_folders` (
+                        `folderKey` TEXT NOT NULL,
+                        `openedAtSec` INTEGER NOT NULL,
+                        PRIMARY KEY(`folderKey`)
+                    )
                     """.trimIndent()
                 )
             }

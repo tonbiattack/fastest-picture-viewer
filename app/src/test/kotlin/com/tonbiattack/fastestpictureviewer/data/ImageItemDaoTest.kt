@@ -399,6 +399,41 @@ class ImageItemDaoTest {
     }
 
     @Test
+    fun `お気に入り画像はフォルダ更新日時降順と自然順で取得できる`() = runTest {
+        val dao = db.imageItemDao()
+        val favoriteDao = db.favoriteImageDao()
+        val folderA = "Pictures/FavA/"
+        val folderB = "Pictures/FavB/"
+        dao.upsertAll(
+            listOf(
+                buildItem("a1", "v", folderA, "1_R.jpg", 100L),
+                buildItem("a2", "v", folderA, "2_R.jpg", 90L),
+                buildItem("a10", "v", folderA, "10_R.jpg", 80L),
+                buildItem("b3", "v", folderB, "3_R.jpg", 300L)
+            )
+        )
+        listOf("a1", "a2", "a10", "b3").forEach {
+            favoriteDao.add(FavoriteImageEntity(itemId = it, addedAtSec = 1L))
+        }
+
+        // フォルダBの最新が新しいのでB→A、A内は自然順
+        assertEquals(
+            listOf("b3", "a1", "a2", "a10"),
+            dao.observeFavoriteImages(null).first().map { it.id }
+        )
+        assertEquals(
+            listOf("a1", "a2", "a10"),
+            dao.observeFavoriteImages("v:$folderA").first().map { it.id }
+        )
+
+        // 除外フォルダのお気に入りは全件表示にも出ない
+        db.excludedFolderDao().add(
+            ExcludedFolderEntity("v:$folderA", "v", folderA, 1L)
+        )
+        assertTrue(dao.observeFavoriteImages(null).first().none { it.folderKey == "v:$folderA" })
+    }
+
+    @Test
     fun `除外設定は保存・解除できる`() = runTest {
         val excludedDao = db.excludedFolderDao()
         excludedDao.add(ExcludedFolderEntity("v:Pictures/A/", "v", "Pictures/A/", 10L))

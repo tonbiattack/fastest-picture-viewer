@@ -84,6 +84,38 @@ data class FavoriteFolderEntity(
 )
 
 /**
+ * フォルダごとの画像一覧スクロール位置。
+ * 画像の安定 ID をアンカーにし、削除時は保存時のインデックスへフォールバックする。
+ */
+@Entity(tableName = "folder_scroll_positions")
+data class FolderScrollPositionEntity(
+    /** フォルダ識別子 (volumeName:relativePath) */
+    @PrimaryKey @ColumnInfo(name = "folderKey") val folderKey: String,
+
+    /** 先頭可視画像の content URI。見つからない場合は null */
+    @ColumnInfo(name = "anchorItemId") val anchorItemId: String?,
+
+    /** 保存時点の先頭可視インデックス (アンカーが見つからない場合のフォールバック) */
+    @ColumnInfo(name = "anchorIndex") val anchorIndex: Int,
+
+    /** 先頭可視画像のピクセルオフセット */
+    @ColumnInfo(name = "anchorOffsetPx") val anchorOffsetPx: Int,
+
+    /** 更新日時 (エポック秒) */
+    @ColumnInfo(name = "updatedAtSec") val updatedAtSec: Long
+)
+
+/** 最近閲覧したフォルダ。フォルダを開いた時刻だけを更新する */
+@Entity(tableName = "recent_folders")
+data class RecentFolderEntity(
+    /** フォルダ識別子 (volumeName:relativePath) */
+    @PrimaryKey @ColumnInfo(name = "folderKey") val folderKey: String,
+
+    /** 最後に開いた日時 (エポック秒) */
+    @ColumnInfo(name = "openedAtSec") val openedAtSec: Long
+)
+
+/**
  * お気に入り。画像ファイル本体には一切変更を加えず、DB 内のフラグだけで管理する。
  * 別テーブルにすることで、走査による images の再 upsert でお気に入りが失われない。
  */

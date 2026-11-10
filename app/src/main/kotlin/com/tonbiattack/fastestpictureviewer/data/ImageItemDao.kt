@@ -104,6 +104,37 @@ interface ImageItemDao {
     @Query("SELECT * FROM images WHERE id IN (:ids)")
     suspend fun getImagesByIds(ids: List<String>): List<ImageItem>
 
+    /**
+     * 画像のお気に入りを、フォルダの最終更新日時降順 → フォルダキー昇順 →
+     * フォルダ内の自然順昇順で返す。
+     *
+     * @param folderKey null なら全フォルダ、指定時はそのフォルダのみ
+     */
+    @Query(
+        """
+        SELECT i.* FROM images AS i
+        INNER JOIN favorite_images AS fav ON fav.itemId = i.id
+        INNER JOIN (
+            SELECT folderKey, MAX(dateModifiedSec) AS maxModified
+            FROM images
+            GROUP BY folderKey
+        ) AS latestFolder ON latestFolder.folderKey = i.folderKey
+        WHERE (:folderKey IS NULL OR i.folderKey = :folderKey)
+          AND NOT EXISTS (
+              SELECT 1 FROM excluded_folders AS excluded
+              WHERE excluded.volumeName = i.volumeName
+                AND (
+                    (excluded.relativePath = '' AND i.relativePath = '')
+                    OR (excluded.relativePath <> ''
+                        AND substr(i.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
+                )
+          )
+        ORDER BY latestFolder.maxModified DESC, i.folderKey ASC,
+                 i.naturalSortKey ASC, i.sortName ASC, i.mediaId ASC
+        """
+    )
+    fun observeFavoriteImages(folderKey: String?): Flow<List<ImageItem>>
+
     /** 保存済み画像の総数 */
     @Query("SELECT COUNT(*) FROM images")
     suspend fun count(): Long

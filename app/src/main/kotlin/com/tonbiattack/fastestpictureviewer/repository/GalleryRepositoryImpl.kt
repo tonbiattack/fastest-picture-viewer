@@ -8,9 +8,11 @@ import com.tonbiattack.fastestpictureviewer.data.AppDatabase
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
+import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
+import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
 import com.tonbiattack.fastestpictureviewer.data.SyncStateEntity
 import com.tonbiattack.fastestpictureviewer.data.VolumeSyncStateEntity
@@ -48,6 +50,8 @@ class GalleryRepositoryImpl(
     private val favoriteDao = db.favoriteImageDao()
     private val favoriteFolderDao = db.favoriteFolderDao()
     private val excludedFolderDao = db.excludedFolderDao()
+    private val folderScrollPositionDao = db.folderScrollPositionDao()
+    private val recentFolderDao = db.recentFolderDao()
 
     /** 同期の二重実行を防ぐ。実行中の要求は待たずにスキップする */
     private val syncMutex = Mutex()
@@ -140,6 +144,45 @@ class GalleryRepositoryImpl(
             } else {
                 favoriteFolderDao.remove(folderKey)
             }
+        }
+    }
+
+    override fun observeFavoriteImages(folderKey: String?): Flow<List<ImageItem>> =
+        imageDao.observeFavoriteImages(folderKey)
+
+    override fun observeRecentFolders(): Flow<List<RecentFolderEntity>> =
+        recentFolderDao.observeAll()
+
+    override suspend fun markFolderOpened(folderKey: String) {
+        withContext(Dispatchers.IO + NonCancellable) {
+            recentFolderDao.upsert(
+                RecentFolderEntity(folderKey = folderKey, openedAtSec = nowSeconds())
+            )
+        }
+    }
+
+    override suspend fun getScrollPosition(folderKey: String): FolderScrollPositionEntity? =
+        withContext(Dispatchers.IO) {
+            folderScrollPositionDao.get(folderKey)
+        }
+
+    override suspend fun saveScrollPosition(
+        folderKey: String,
+        anchorItemId: String?,
+        anchorIndex: Int,
+        anchorOffsetPx: Int
+    ) {
+        // 画面離脱直後でも最後の位置が失われないよう、キャンセル不可で書き込む
+        withContext(Dispatchers.IO + NonCancellable) {
+            folderScrollPositionDao.upsert(
+                FolderScrollPositionEntity(
+                    folderKey = folderKey,
+                    anchorItemId = anchorItemId,
+                    anchorIndex = anchorIndex,
+                    anchorOffsetPx = anchorOffsetPx,
+                    updatedAtSec = nowSeconds()
+                )
+            )
         }
     }
 

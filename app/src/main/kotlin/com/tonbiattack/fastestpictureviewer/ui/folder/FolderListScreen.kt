@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -90,6 +91,7 @@ fun FolderListScreen(
     onRequestPermission: () -> Unit,
     onManualRefresh: () -> Unit,
     onClearImageCache: () -> Unit,
+    onOpenFavorites: () -> Unit,
     onOpenExcludedFolders: () -> Unit,
     onExcludeFolder: (FolderUiModel) -> Unit,
     onSetFolderFavorite: (FolderUiModel, Boolean) -> Unit,
@@ -125,7 +127,9 @@ fun FolderListScreen(
     if (showDisplaySettings) {
         DisplaySettingsDialog(
             columnCount = state.columnCount,
+            sortMode = state.sortMode,
             onColumnCountChange = viewModel::setColumnCount,
+            onSortModeChange = viewModel::setSortMode,
             onDismiss = { showDisplaySettings = false }
         )
     }
@@ -209,6 +213,13 @@ fun FolderListScreen(
                                     onClick = {
                                         topMenuExpanded = false
                                         showDisplaySettings = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("お気に入り画像") },
+                                    onClick = {
+                                        topMenuExpanded = false
+                                        onOpenFavorites()
                                     }
                                 )
                                 DropdownMenuItem(
@@ -329,7 +340,9 @@ private fun SearchField(
 @Composable
 private fun DisplaySettingsDialog(
     columnCount: Int,
+    sortMode: FolderSortMode,
     onColumnCountChange: (Int) -> Unit,
+    onSortModeChange: (FolderSortMode) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -347,6 +360,22 @@ private fun DisplaySettingsDialog(
                             label = { Text("${count}列") }
                         )
                     }
+                }
+
+                Spacer(Modifier.height(16.dp))
+                Text("フォルダ一覧の並び順", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = sortMode == FolderSortMode.LATEST,
+                        onClick = { onSortModeChange(FolderSortMode.LATEST) },
+                        label = { Text("更新日時順") }
+                    )
+                    FilterChip(
+                        selected = sortMode == FolderSortMode.RECENT,
+                        onClick = { onSortModeChange(FolderSortMode.RECENT) },
+                        label = { Text("最近閲覧順") }
+                    )
                 }
             }
         },
@@ -451,16 +480,36 @@ private fun FolderGridCell(
                         modifier = Modifier.fillMaxSize()
                     )
 
-                    if (folder.isFavorite) {
-                        Icon(
-                            Icons.Filled.Star,
-                            contentDescription = "お気に入り",
-                            tint = Color(0xFFFFC107),
+                    // 右上の星を直接タップしてお気に入りを切り替える (タッチ領域48dp)
+                    IconButton(
+                        onClick = onFavoriteToggle,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(2.dp)
+                            .size(48.dp)
+                    ) {
+                        Box(
                             modifier = Modifier
-                                .align(Alignment.TopStart)
-                                .padding(6.dp)
-                                .size(20.dp)
-                        )
+                                .size(28.dp)
+                                .background(Color.Black.copy(alpha = 0.35f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (folder.isFavorite) {
+                                Icon(
+                                    Icons.Filled.Star,
+                                    contentDescription = "フォルダのお気に入りから解除",
+                                    tint = Color(0xFFFFC107),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            } else {
+                                Icon(
+                                    painterResource(R.drawable.ic_star_outline),
+                                    contentDescription = "フォルダのお気に入りに追加",
+                                    tint = Color.White.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                     }
                 }
 

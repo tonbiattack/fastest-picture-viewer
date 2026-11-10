@@ -3,8 +3,10 @@ package com.tonbiattack.fastestpictureviewer.repository
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
+import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
+import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -62,5 +64,28 @@ interface GalleryRepository {
         volumeName: String,
         relativePath: String,
         favorite: Boolean
+    )
+
+    /**
+     * 画像のお気に入りを、フォルダの最終更新日時降順 → フォルダキー昇順 →
+     * フォルダ内の自然順昇順で返す。[folderKey] が null なら全フォルダ。
+     */
+    fun observeFavoriteImages(folderKey: String?): Flow<List<ImageItem>>
+
+    /** 最近閲覧したフォルダを購読する */
+    fun observeRecentFolders(): Flow<List<RecentFolderEntity>>
+
+    /** フォルダを開いた時刻を記録する */
+    suspend fun markFolderOpened(folderKey: String)
+
+    /** フォルダ別のスクロール位置を取得する */
+    suspend fun getScrollPosition(folderKey: String): FolderScrollPositionEntity?
+
+    /** フォルダ別のスクロール位置を保存する */
+    suspend fun saveScrollPosition(
+        folderKey: String,
+        anchorItemId: String?,
+        anchorIndex: Int,
+        anchorOffsetPx: Int
     )
 }

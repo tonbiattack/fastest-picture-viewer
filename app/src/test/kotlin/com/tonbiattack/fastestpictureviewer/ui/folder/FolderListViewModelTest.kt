@@ -5,8 +5,10 @@ import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
+import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
+import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import com.tonbiattack.fastestpictureviewer.repository.SyncMode
@@ -45,8 +47,16 @@ class FolderListViewModelTest {
     private class FakeViewSettings(initial: Int = 2) : FolderViewSettings {
         private val _columnCount = MutableStateFlow(initial)
         override val columnCount: StateFlow<Int> = _columnCount
+
+        private val _sortMode = MutableStateFlow(FolderSortMode.LATEST)
+        override val sortMode: StateFlow<FolderSortMode> = _sortMode
+
         override fun setColumnCount(count: Int) {
             _columnCount.value = count.coerceIn(1, 4)
+        }
+
+        override fun setSortMode(mode: FolderSortMode) {
+            _sortMode.value = mode
         }
     }
 
@@ -89,6 +99,21 @@ class FolderListViewModelTest {
             volumeName: String,
             relativePath: String,
             favorite: Boolean
+        ) = Unit
+
+        override fun observeFavoriteImages(folderKey: String?): Flow<List<ImageItem>> =
+            MutableStateFlow(emptyList())
+
+        val recentFoldersFlow = MutableStateFlow<List<RecentFolderEntity>>(emptyList())
+        override fun observeRecentFolders(): Flow<List<RecentFolderEntity>> = recentFoldersFlow
+
+        override suspend fun markFolderOpened(folderKey: String) = Unit
+        override suspend fun getScrollPosition(folderKey: String): FolderScrollPositionEntity? = null
+        override suspend fun saveScrollPosition(
+            folderKey: String,
+            anchorItemId: String?,
+            anchorIndex: Int,
+            anchorOffsetPx: Int
         ) = Unit
     }
 
@@ -310,6 +335,40 @@ class FolderListViewModelTest {
         vm.setColumnCount(9)
         advanceUntilIdle()
         assertEquals(4, vm.uiState.value.columnCount)
+    }
+
+    @Test
+    fun `最近閲覧順は閲覧済みを先頭にし未閲覧は更新日時順にする`() = runTest {
+        val repo = FakeRepository()
+        val settings = FakeViewSettings()
+        val vm = FolderListViewModel(repo, settings, SavedStateHandle())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+
+        val a = summary(FolderKeys.create("v", "Pictures/A/"), modifiedSec = 100L)
+        val b = summary(FolderKeys.create("v", "Pictures/B/"), modifiedSec = 200L)
+        val c = summary(FolderKeys.create("v", "Pictures/C/"), modifiedSec = 300L)
+        // DAO は更新日時降順で返す想定
+        repo.foldersFlow.value = listOf(c, b, a)
+        repo.recentFoldersFlow.value = listOf(
+            RecentFolderEntity(a.folderKey, openedAtSec = 100L),
+            RecentFolderEntity(b.folderKey, openedAtSec = 200L)
+        )
+        advanceUntilIdle()
+
+        vm.setSortMode(FolderSortMode.RECENT)
+        advanceUntilIdle()
+        assertEquals(
+            listOf(b.folderKey, a.folderKey, c.folderKey),
+            vm.uiState.value.folders.map { it.folderKey }
+        )
+        assertEquals(FolderSortMode.RECENT, vm.uiState.value.sortMode)
+
+        vm.setSortMode(FolderSortMode.LATEST)
+        advanceUntilIdle()
+        assertEquals(
+            listOf(c.folderKey, b.folderKey, a.folderKey),
+            vm.uiState.value.folders.map { it.folderKey }
+        )
     }
 
     @Test

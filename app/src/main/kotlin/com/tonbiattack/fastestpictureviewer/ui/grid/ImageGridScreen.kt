@@ -1,7 +1,8 @@
 package com.tonbiattack.fastestpictureviewer.ui.grid
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -12,24 +13,36 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
@@ -53,21 +66,43 @@ fun ImageGridScreen(
 ) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
     val context = LocalContext.current
+    var showFullFolderName by remember { mutableStateOf(false) }
+
+    if (showFullFolderName) {
+        AlertDialog(
+            onDismissRequest = { showFullFolderName = false },
+            title = { Text("フォルダ名") },
+            text = { Text(state.folderName) },
+            confirmButton = {
+                TextButton(onClick = { showFullFolderName = false }) { Text("閉じる") }
+            }
+        )
+    }
 
     Scaffold(
         modifier = modifier,
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(state.folderName.ifBlank { "読み込み中…" })
-                        if (state.isSyncing) {
-                            Text(
-                                "更新チェック中…",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                    // 長いフォルダ名でもヘッダーの高さが増えないよう1行固定にする
+                    Text(
+                        text = state.folderName.ifBlank { "読み込み中…" },
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable(
+                            enabled = state.folderName.isNotBlank()
+                        ) { showFullFolderName = true }
+                    )
+                },
+                actions = {
+                    if (state.isSyncing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(end = 12.dp)
+                                .size(20.dp),
+                            strokeWidth = 2.dp
+                        )
                     }
                 }
             )
@@ -92,12 +127,29 @@ fun ImageGridScreen(
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
+                !state.isScrollRestored -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(40.dp)
+                    )
+                }
                 else -> {
-                    val gridState = rememberLazyGridState(viewModel.initialScrollIndex)
+                    val gridState = rememberLazyGridState(
+                        initialFirstVisibleItemIndex = state.initialIndex,
+                        initialFirstVisibleItemScrollOffset = state.initialOffset
+                    )
                     LaunchedEffect(gridState) {
-                        snapshotFlow { gridState.firstVisibleItemIndex }
+                        snapshotFlow {
+                            gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset
+                        }
                             .distinctUntilChanged()
-                            .collect { viewModel.saveScrollIndex(it) }
+                            .collect { (index, offset) ->
+                                viewModel.onScrollPositionChanged(index, offset)
+                            }
+                    }
+                    DisposableEffect(gridState) {
+                        onDispose { viewModel.flushScrollPosition() }
                     }
                     Box(modifier = Modifier.fillMaxSize()) {
                         LazyVerticalGrid(
@@ -116,17 +168,56 @@ fun ImageGridScreen(
                                 val request = remember(image.id, image.dateModifiedSec, image.size) {
                                     image.toImageRequest(context)
                                 }
-                                AsyncImage(
-                                    model = request,
-                                    contentDescription = image.displayName,
-                                    contentScale = ContentScale.Crop,
-                                    error = painterResource(R.drawable.ic_broken_image),
+                                val isFavorite = image.id in state.favoriteIds
+                                Box(
                                     modifier = Modifier
                                         .aspectRatio(1f)
                                         .padding(1.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .clickable { onOpenViewer(state.folderKey ?: "", index) }
-                                )
+                                ) {
+                                    AsyncImage(
+                                        model = request,
+                                        contentDescription = image.displayName,
+                                        contentScale = ContentScale.Crop,
+                                        error = painterResource(R.drawable.ic_broken_image),
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .clickable { onOpenViewer(state.folderKey ?: "", index) }
+                                    )
+                                    // 右上の星でお気に入りを直接切り替える
+                                    IconButton(
+                                        onClick = { viewModel.toggleFavorite(image.id, isFavorite) },
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .size(48.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(26.dp)
+                                                .background(
+                                                    Color.Black.copy(alpha = 0.35f),
+                                                    CircleShape
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (isFavorite) {
+                                                Icon(
+                                                    Icons.Filled.Star,
+                                                    contentDescription = "画像のお気に入りから解除",
+                                                    tint = Color(0xFFFFC107),
+                                                    modifier = Modifier.size(17.dp)
+                                                )
+                                            } else {
+                                                Icon(
+                                                    painterResource(R.drawable.ic_star_outline),
+                                                    contentDescription = "画像のお気に入りに追加",
+                                                    tint = Color.White.copy(alpha = 0.85f),
+                                                    modifier = Modifier.size(17.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                         FastScroller(

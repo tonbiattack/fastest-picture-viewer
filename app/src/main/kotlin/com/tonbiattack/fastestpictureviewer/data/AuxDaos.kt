@@ -54,6 +54,28 @@ interface ExcludedFolderDao {
     suspend fun exists(folderKey: String): Long
 }
 
+/** フォルダ別スクロール位置の DAO */
+@Dao
+interface FolderScrollPositionDao {
+
+    @Query("SELECT * FROM folder_scroll_positions WHERE folderKey = :folderKey")
+    suspend fun get(folderKey: String): FolderScrollPositionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: FolderScrollPositionEntity)
+}
+
+/** 最近閲覧フォルダの DAO */
+@Dao
+interface RecentFolderDao {
+
+    @Query("SELECT * FROM recent_folders ORDER BY openedAtSec DESC, folderKey ASC")
+    fun observeAll(): Flow<List<RecentFolderEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: RecentFolderEntity)
+}
+
 /** フォルダ単位のお気に入りの DAO */
 @Dao
 interface FavoriteFolderDao {
