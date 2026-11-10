@@ -25,7 +25,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FavoriteFolderEntity::class,
         ExcludedFolderEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -46,7 +46,7 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 DATABASE_NAME
-            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4).build()
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5).build()
 
         /** テスト用のメモリ DB を構築する */
         fun buildInMemory(context: Context): AppDatabase =
@@ -100,6 +100,26 @@ abstract class AppDatabase : RoomDatabase() {
                         `addedAtSec` INTEGER NOT NULL,
                         PRIMARY KEY(`folderKey`)
                     )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        /**
+         * v4 → v5: 自然順ソートキー列とインデックスを追加する。
+         * 既存行のキーは空のまま移行し、フォルダを開いたときに遅延バックフィルする
+         * (35万件の一括更新で起動を長時間ブロックしないため)。
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `images` ADD COLUMN `naturalSortKey` TEXT NOT NULL DEFAULT ''"
+                )
+                db.execSQL("DROP INDEX IF EXISTS `index_images_folderKey_sortName_mediaId`")
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS `index_images_folderKey_naturalSortKey_sortName_mediaId`
+                    ON `images` (`folderKey`, `naturalSortKey`, `sortName`, `mediaId`)
                     """.trimIndent()
                 )
             }

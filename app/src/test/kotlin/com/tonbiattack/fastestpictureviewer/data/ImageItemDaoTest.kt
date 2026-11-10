@@ -3,6 +3,7 @@ package com.tonbiattack.fastestpictureviewer.data
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.tonbiattack.fastestpictureviewer.core.util.NaturalSortKey
 import com.tonbiattack.fastestpictureviewer.repository.PendingSyncPlanner
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -46,7 +47,8 @@ class ImageItemDaoTest {
         size = 123L,
         mimeType = "image/jpeg",
         width = 100,
-        height = 100
+        height = 100,
+        naturalSortKey = NaturalSortKey.create(name)
     )
 
     @Before
@@ -367,6 +369,33 @@ class ImageItemDaoTest {
         val row = dao.observeFolderSummaries().first().single()
         assertEquals("v:Pictures/A/", row.folderKey)
         assertEquals(500L, row.latestModifiedSec)
+    }
+
+    @Test
+    fun `フォルダ内画像は自然順で並ぶ`() = runTest {
+        val dao = db.imageItemDao()
+        val path = "Pictures/Natural/"
+        dao.upsertAll(
+            listOf(
+                buildItem("100", "v", path, "100_R.jpg", 1L),
+                buildItem("10", "v", path, "10_R.jpg", 1L),
+                buildItem("8", "v", path, "8_R.jpg", 1L),
+                buildItem("7", "v", path, "7_R.jpg", 1L),
+                buildItem("2", "v", path, "2_R.jpg", 1L),
+                buildItem("02", "v", path, "02_R.jpg", 1L),
+                buildItem("1", "v", path, "1_R.jpg", 1L),
+                buildItem("p10", "v", path, "page2_10.jpg", 1L),
+                buildItem("p3", "v", path, "page2_3.jpg", 1L)
+            )
+        )
+
+        assertEquals(
+            listOf(
+                "1_R.jpg", "02_R.jpg", "2_R.jpg", "7_R.jpg", "8_R.jpg",
+                "10_R.jpg", "100_R.jpg", "page2_3.jpg", "page2_10.jpg"
+            ),
+            dao.observeImages("v:$path").first().map { it.displayName }
+        )
     }
 
     @Test

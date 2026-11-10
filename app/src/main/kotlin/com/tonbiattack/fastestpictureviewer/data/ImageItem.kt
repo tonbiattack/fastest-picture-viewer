@@ -16,8 +16,8 @@ import androidx.room.PrimaryKey
 @Entity(
     tableName = "images",
     indices = [
-        // フォルダ内一覧 (ソートキー昇順 + 同名タイブレーク) 用の複合インデックス
-        Index(value = ["folderKey", "sortName", "mediaId"]),
+        // フォルダ内一覧 (自然順キー昇順 + 同名タイブレーク) 用の複合インデックス
+        Index(value = ["folderKey", "naturalSortKey", "sortName", "mediaId"]),
         // フォルダ一覧の集計 (MAX(dateModifiedSec)) 用
         Index(value = ["folderKey", "dateModifiedSec"]),
         // 前回同期時刻以降の差分検出用
@@ -67,7 +67,14 @@ data class ImageItem(
     @ColumnInfo(name = "width") val width: Int?,
 
     /** 画像高さ (取得できない端末では null) */
-    @ColumnInfo(name = "height") val height: Int?
+    @ColumnInfo(name = "height") val height: Int?,
+
+    /**
+     * ファイル名の自然順ソートキー。
+     * 既存キャッシュは空のまま移行し、フォルダを開いたときに遅延バックフィルする。
+     */
+    @ColumnInfo(name = "naturalSortKey", defaultValue = "")
+    val naturalSortKey: String = ""
 )
 
 /** フォルダ一覧向けの集計行。フォルダ内画像の件数と最新更新日時を GROUP BY で取得する */

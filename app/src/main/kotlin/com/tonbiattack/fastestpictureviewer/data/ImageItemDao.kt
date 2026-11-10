@@ -83,7 +83,7 @@ interface ImageItemDao {
                         AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
                 )
           )
-        ORDER BY sortName ASC, mediaId ASC
+        ORDER BY naturalSortKey ASC, sortName ASC, mediaId ASC
         """
     )
     fun observeImages(folderKey: String): Flow<List<ImageItem>>

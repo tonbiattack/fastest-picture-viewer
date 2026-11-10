@@ -8,6 +8,7 @@ import android.os.Build
 import android.provider.MediaStore
 import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
 import com.tonbiattack.fastestpictureviewer.core.util.FolderNames
+import com.tonbiattack.fastestpictureviewer.core.util.NaturalSortKey
 import java.util.Locale
 
 /**
@@ -134,7 +135,8 @@ class MediaStoreScanner(private val context: Context) {
                 size = cursor.getLong(sizeIdx),
                 mimeType = cursor.getStringOrNull(mimeIdx),
                 width = cursor.getIntOrNull(widthIdx),
-                height = cursor.getIntOrNull(heightIdx)
+                height = cursor.getIntOrNull(heightIdx),
+                naturalSortKey = NaturalSortKey.create(displayName)
             )
         }
     }

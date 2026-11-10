@@ -3,6 +3,7 @@ package com.tonbiattack.fastestpictureviewer.repository
 import android.os.SystemClock
 import android.util.Log
 import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
+import com.tonbiattack.fastestpictureviewer.core.util.NaturalSortKey
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
@@ -19,8 +20,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * [GalleryRepository] の実装。
@@ -49,6 +52,9 @@ class GalleryRepositoryImpl(
     /** 同期の二重実行を防ぐ。実行中の要求は待たずにスキップする */
     private val syncMutex = Mutex()
 
+    /** 自然順キーの遅延バックフィルをフォルダ単位で一度だけ行うための記録 */
+    private val backfilledFolders = ConcurrentHashMap.newKeySet<String>()
+
     private val _syncStatus = MutableStateFlow(SyncStatus.IDLE)
     override val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
 
@@ -59,7 +65,31 @@ class GalleryRepositoryImpl(
         imageDao.observeRepresentatives()
 
     override fun observeImages(folderKey: String): Flow<List<ImageItem>> =
-        imageDao.observeImages(folderKey)
+        imageDao.observeImages(folderKey).map { items ->
+            if (items.none { it.naturalSortKey.isEmpty() }) {
+                // バックフィル済みなら DAO のインデックス順をそのまま使う
+                items
+            } else {
+                withContext(Dispatchers.IO) {
+                    val prepared = items.map { item ->
+                        if (item.naturalSortKey.isEmpty()) {
+                            item.copy(naturalSortKey = NaturalSortKey.create(item.displayName))
+                        } else {
+                            item
+                        }
+                    }
+                    if (backfilledFolders.add(folderKey)) {
+                        try {
+                            // 既存キャッシュのキーを遅延生成する。元画像・お気に入り等には影響しない
+                            imageDao.upsertAll(prepared)
+                        } catch (t: Exception) {
+                            backfilledFolders.remove(folderKey)
+                        }
+                    }
+                    prepared.sortedWith(NaturalSortKey.comparator)
+                }
+            }
+        }
 
     override fun observeFavorites(): Flow<List<FavoriteImageEntity>> = favoriteDao.observeAll()
 
