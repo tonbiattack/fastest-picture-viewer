@@ -74,6 +74,7 @@
 - [仕様書（最新版）](docs/specification.md)
 - [Windows 11 ビルド・テスト環境手順](docs/build-environment.md)
 - [実機（OPPO Reno13 A）検証手順](docs/device-verification.md)
+- [UX改善バックログ（採用・保留・不採用）](docs/ux-backlog.md)
 - [署名鍵の運用方針](docs/signing-policy.md)
 - [実装指示の参考資料](docs/gpt/spec.md)
 - [既存ギャラリーの課題分析](docs/gpt/既存分析.md)
