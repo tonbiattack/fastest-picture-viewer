@@ -24,6 +24,24 @@ data class SyncStateEntity(
 )
 
 /**
+ * ボリューム単位の同期状態。
+ *
+ * MediaStore の世代番号 (generation) が変わっていなければそのボリュームの再走査を省略する。
+ * 世代番号が取得できない環境 (API 29 など) では null となり、日時ベースの差分走査にフォールバックする。
+ */
+@Entity(tableName = "volume_sync_state")
+data class VolumeSyncStateEntity(
+    /** MediaStore のボリューム名 (external_primary / SD カードなど) */
+    @PrimaryKey @ColumnInfo(name = "volumeName") val volumeName: String,
+
+    /** 前回の走査時点の MediaStore 世代番号。取得できない環境では null */
+    @ColumnInfo(name = "contentGeneration") val contentGeneration: Long?,
+
+    /** 前回の走査開始時刻 (エポック秒) */
+    @ColumnInfo(name = "lastScanSec") val lastScanSec: Long
+)
+
+/**
  * お気に入り。画像ファイル本体には一切変更を加えず、DB 内のフラグだけで管理する。
  * 別テーブルにすることで、走査による images の再 upsert でお気に入りが失われない。
  */

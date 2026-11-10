@@ -34,12 +34,18 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.imageLoader
+import com.tonbiattack.fastestpictureviewer.R
+import com.tonbiattack.fastestpictureviewer.core.image.toImageRequest
+import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlin.math.abs
 
 /**
  * 画像詳細画面。
@@ -56,6 +62,9 @@ fun ImageViewerScreen(
     modifier: Modifier = Modifier
 ) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
+    val context = LocalContext.current
+    val imageLoader = context.imageLoader
+    val containerSize = LocalWindowInfo.current.containerSize
 
     val pagerState = rememberPagerState(
         initialPage = state.initialIndex,
@@ -67,6 +76,18 @@ fun ImageViewerScreen(
         snapshotFlow { pagerState.currentPage }
             .distinctUntilChanged()
             .collect { viewModel.onPageChanged(it) }
+    }
+
+    // 前後 1 枚だけ画面サイズで先読みする。全件先読みはせず、メモリ圧迫時はキャッシュ側で解放される
+    LaunchedEffect(pagerState.currentPage, state.images, containerSize) {
+        val width = containerSize.width
+        val height = containerSize.height
+        if (width <= 0 || height <= 0) return@LaunchedEffect
+        val page = pagerState.currentPage
+        listOf(page - 1, page + 1).forEach { index ->
+            val image = state.images.getOrNull(index) ?: return@forEach
+            imageLoader.enqueue(image.toImageRequest(context, width, height))
+        }
     }
 
     Scaffold(
@@ -105,7 +126,7 @@ fun ImageViewerScreen(
                         .weight(1f)
                 ) { page ->
                     val image = state.images.getOrNull(page) ?: return@HorizontalPager
-                    ZoomableImage(uri = image.uri, contentDescription = image.displayName)
+                    ZoomableImage(image = image)
                 }
             }
         }
@@ -114,7 +135,11 @@ fun ImageViewerScreen(
 
 /** ピンチズーム・ダブルタップに対応した画像。ズーム中は Pager のスワイプと競合しないよう変換をローカルで完結させる */
 @Composable
-private fun ZoomableImage(uri: String, contentDescription: String?) {
+private fun ZoomableImage(image: ImageItem) {
+    val context = LocalContext.current
+    val request = remember(image.id, image.dateModifiedSec, image.size) {
+        image.toImageRequest(context)
+    }
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
 
@@ -141,7 +166,7 @@ private fun ZoomableImage(uri: String, contentDescription: String?) {
             .fillMaxSize()
             .background(Color.Black)
             // ダブルタップで 2 倍ズームのトグル
-            .pointerInput(uri) {
+            .pointerInput(image.uri) {
                 detectTapGestures(
                     onDoubleTap = {
                         if (scale > 1f) {
@@ -158,9 +183,10 @@ private fun ZoomableImage(uri: String, contentDescription: String?) {
         contentAlignment = Alignment.Center
     ) {
         AsyncImage(
-            model = uri,
-            contentDescription = contentDescription,
+            model = request,
+            contentDescription = image.displayName,
             contentScale = ContentScale.Fit,
+            error = painterResource(R.drawable.ic_broken_image),
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {

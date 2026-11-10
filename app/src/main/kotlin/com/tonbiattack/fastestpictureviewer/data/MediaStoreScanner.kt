@@ -3,6 +3,7 @@ package com.tonbiattack.fastestpictureviewer.data
 import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
 import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
 import com.tonbiattack.fastestpictureviewer.core.util.FolderNames
@@ -20,6 +21,22 @@ class MediaStoreScanner(private val context: Context) {
     /** 画像を列挙対象とするストレージのボリューム名一覧 */
     fun volumes(): List<String> =
         MediaStore.getExternalVolumeNames(context).toList()
+
+    /**
+     * ボリュームの MediaStore 世代番号を取得する。
+     *
+     * 世代番号はそのボリュームのメディアが変更されるたびに増えるため、
+     * 前回と同じなら再走査を省略できる。API 29 では取得できないため null を返す。
+     */
+    fun generation(volumeName: String): Long? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        return try {
+            MediaStore.getGeneration(context, volumeName)
+        } catch (t: Exception) {
+            // ボリュームが一時的に見えない場合など。差分走査へフォールバックする
+            null
+        }
+    }
 
     /**
      * 指定ボリュームの画像メタ情報を取得する。

@@ -7,12 +7,13 @@ import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
 import com.tonbiattack.fastestpictureviewer.data.SyncStateEntity
+import com.tonbiattack.fastestpictureviewer.data.VolumeSyncStateEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import androidx.room.withTransaction
 
@@ -35,7 +36,11 @@ class GalleryRepositoryImpl(
 
     private val imageDao = db.imageItemDao()
     private val syncStateDao = db.syncStateDao()
+    private val volumeStateDao = db.volumeSyncStateDao()
     private val favoriteDao = db.favoriteImageDao()
+
+    /** 同期の二重実行を防ぐ。実行中の要求は待たずにスキップする */
+    private val syncMutex = Mutex()
 
     private val _syncStatus = MutableStateFlow(SyncStatus.IDLE)
     override val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
@@ -63,11 +68,15 @@ class GalleryRepositoryImpl(
 
     override suspend fun sync(mode: SyncMode, canDelete: Boolean): SyncResult =
         withContext(Dispatchers.IO) {
-            // 二重実行ガード: 実行中は追加の同期を開始しない
-            if (_syncStatus.value.isRunning) {
+            // 二重実行ガード: 実行中は追加の同期を開始しない (Mutex で排他する)
+            if (!syncMutex.tryLock()) {
                 SyncResult(addedCount = 0, updatedCount = 0, removedCount = 0, failedVolumes = emptyList())
             } else {
-                runSync(mode, canDelete)
+                try {
+                    runSync(mode, canDelete)
+                } finally {
+                    syncMutex.unlock()
+                }
             }
         }
 
@@ -91,17 +100,29 @@ class GalleryRepositoryImpl(
         val failedVolumes = mutableListOf<String>()
         var anyFailure = false
 
-        for (volumeName in scanner.volumes()) {
+        val volumes = scanner.volumes()
+        for (volumeName in volumes) {
             try {
+                val stored = volumeStateDao.get(volumeName)
+                val currentGeneration = scanner.generation(volumeName)
+
+                // 世代番号が同じなら再走査しない。変わっていれば削除/改名/移動を拾うため全件走査する
+                val scanKind = VolumeSyncPolicy.decide(
+                    isFullSync = isFull,
+                    currentGeneration = currentGeneration,
+                    storedGeneration = stored?.contentGeneration
+                )
+                if (scanKind == VolumeScanKind.SKIP) continue
+
                 val scanned: List<ImageItem> = scanner.scan(
                     volumeName = volumeName,
                     // 完全走査なら全部、差分なら前回値から緩衝を引いて取得
-                    modifiedAfterSec = if (isFull) null else {
+                    modifiedAfterSec = if (scanKind == VolumeScanKind.FULL) null else {
                         (before.lastSinceSec - differentialBufferSec).coerceAtLeast(0L)
                     }
                 )
 
-                if (isFull) {
+                if (scanKind == VolumeScanKind.FULL) {
                     // 完全走査: このボリュームの既存行と突き合わせて差分反映を行う
                     val cached = imageDao.getImagesByVolume(volumeName)
                     val plan = PendingSyncPlanner.plan(scanned, cached)
@@ -121,12 +142,28 @@ class GalleryRepositoryImpl(
                     imageDao.upsertAll(scanned)
                     added += scanned.size
                 }
+
+                // 成功したボリュームだけ世代番号を更新する。失敗時は前回値のまま残し再走査させる
+                volumeStateDao.upsert(
+                    VolumeSyncStateEntity(
+                        volumeName = volumeName,
+                        contentGeneration = currentGeneration,
+                        lastScanSec = startSec
+                    )
+                )
             } catch (t: Exception) {
                 // SD カード未挿入・権限の局所性などで 1 ボリュームが失敗しても他を継続する
                 // 失敗したボリュームの行は触らないため、既存のキャッシュは保護される
                 failedVolumes += volumeName
                 anyFailure = true
             }
+        }
+
+        // 見えなくなったボリュームの同期状態だけを片付ける (画像キャッシュは削除しない)
+        if (isFull && !anyFailure) {
+            volumeStateDao.getAll()
+                .filter { it.volumeName !in volumes }
+                .forEach { volumeStateDao.remove(it.volumeName) }
         }
 
         // 走査を 1 つでも失敗したボリュームがあれば時刻を進めない (次回の再走査対象とする)

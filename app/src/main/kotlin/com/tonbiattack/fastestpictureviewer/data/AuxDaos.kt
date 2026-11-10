@@ -20,6 +20,23 @@ interface SyncStateDao {
     suspend fun clear()
 }
 
+/** ボリューム単位の同期状態 DAO */
+@Dao
+interface VolumeSyncStateDao {
+
+    @Query("SELECT * FROM volume_sync_state WHERE volumeName = :volumeName")
+    suspend fun get(volumeName: String): VolumeSyncStateEntity?
+
+    @Query("SELECT * FROM volume_sync_state")
+    suspend fun getAll(): List<VolumeSyncStateEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(state: VolumeSyncStateEntity)
+
+    @Query("DELETE FROM volume_sync_state WHERE volumeName = :volumeName")
+    suspend fun remove(volumeName: String)
+}
+
 /** お気に入りの DAO */
 @Dao
 interface FavoriteImageDao {

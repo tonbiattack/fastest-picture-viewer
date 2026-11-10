@@ -16,7 +16,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,18 +28,27 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.tonbiattack.fastestpictureviewer.R
+import com.tonbiattack.fastestpictureviewer.core.image.folderThumbnailRequest
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import java.text.SimpleDateFormat
@@ -56,10 +67,31 @@ fun FolderListScreen(
     accessLevel: MediaAccessLevel,
     onRequestPermission: () -> Unit,
     onManualRefresh: () -> Unit,
+    onClearImageCache: () -> Unit,
     onOpenFolder: (FolderUiModel) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
+    var showClearCacheDialog by remember { mutableStateOf(false) }
+
+    if (showClearCacheDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearCacheDialog = false },
+            title = { Text("画像キャッシュを削除") },
+            text = { Text("サムネイルと先読みのキャッシュを削除します。画像やフォルダの情報は削除されません。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearCacheDialog = false
+                        onClearImageCache()
+                    }
+                ) { Text("削除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearCacheDialog = false }) { Text("キャンセル") }
+            }
+        )
+    }
 
     Scaffold(
         modifier = modifier,
@@ -76,6 +108,9 @@ fun FolderListScreen(
                             strokeWidth = 3.dp
                         )
                     } else {
+                        IconButton(onClick = { showClearCacheDialog = true }) {
+                            Icon(Icons.Filled.Delete, contentDescription = "画像キャッシュを削除")
+                        }
                         IconButton(onClick = onManualRefresh) {
                             Icon(Icons.Filled.Refresh, contentDescription = "全件再同期")
                         }
@@ -160,6 +195,13 @@ private fun FolderList(
 
 @Composable
 private fun FolderRow(folder: FolderUiModel, onClick: () -> Unit) {
+    val context = LocalContext.current
+    val request = remember(folder.representativeImageUri, folder.latestModifiedSec) {
+        folder.representativeImageUri?.let {
+            folderThumbnailRequest(context, it, folder.latestModifiedSec)
+        }
+    }
+
     ElevatedCard(
         onClick = onClick,
         modifier = Modifier
@@ -174,9 +216,10 @@ private fun FolderRow(folder: FolderUiModel, onClick: () -> Unit) {
         ) {
             // 代表サムネイル。Coil が縮小デコードするため元画像を RAM で丸ごと保持しない
             AsyncImage(
-                model = folder.representativeImageUri,
+                model = request,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
+                error = painterResource(R.drawable.ic_broken_image),
                 modifier = Modifier
                     .size(56.dp)
                     .clip(RoundedCornerShape(8.dp))
@@ -258,7 +301,7 @@ private fun PermissionBanner(
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                 modifier = Modifier.weight(1f)
             )
-            androidx.compose.material3.TextButton(onClick = onRequestPermission) {
+            TextButton(onClick = onRequestPermission) {
                 Text("許可する")
             }
         }

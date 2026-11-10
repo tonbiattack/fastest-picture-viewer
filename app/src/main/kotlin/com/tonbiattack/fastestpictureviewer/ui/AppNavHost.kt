@@ -2,6 +2,7 @@ package com.tonbiattack.fastestpictureviewer.ui
 
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -16,6 +17,7 @@ import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridScreen
 import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridViewModel
 import com.tonbiattack.fastestpictureviewer.ui.viewer.ImageViewerScreen
 import com.tonbiattack.fastestpictureviewer.ui.viewer.ImageViewerViewModel
+import kotlinx.coroutines.launch
 
 /** 画面経路 */
 object Routes {
@@ -48,6 +50,7 @@ fun AppNavHost(
     modifier: Modifier = Modifier
 ) {
     val factory = container.viewModelFactory
+    val scope = rememberCoroutineScope()
 
     NavHost(
         navController = navController,
@@ -61,6 +64,9 @@ fun AppNavHost(
                 accessLevel = accessLevel,
                 onRequestPermission = onRequestPermission,
                 onManualRefresh = onManualRefresh,
+                onClearImageCache = {
+                    scope.launch { container.clearImageCaches() }
+                },
                 onOpenFolder = { folder ->
                     navController.navigate(Routes.imageGrid(folder.folderKey))
                 }

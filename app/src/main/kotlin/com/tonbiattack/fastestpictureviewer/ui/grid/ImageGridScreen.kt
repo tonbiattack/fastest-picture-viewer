@@ -20,14 +20,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.tonbiattack.fastestpictureviewer.R
+import com.tonbiattack.fastestpictureviewer.core.image.toImageRequest
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
@@ -44,6 +49,7 @@ fun ImageGridScreen(
     modifier: Modifier = Modifier
 ) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
+    val context = LocalContext.current
 
     Scaffold(
         modifier = modifier,
@@ -100,10 +106,15 @@ fun ImageGridScreen(
                             key = { _, item -> item.id },
                             contentType = { _, _ -> "imageCell" }
                         ) { index, image ->
+                            // 更新日時とサイズをキャッシュキーに含め、上書きされた画像を再読込する
+                            val request = remember(image.id, image.dateModifiedSec, image.size) {
+                                image.toImageRequest(context)
+                            }
                             AsyncImage(
-                                model = image.uri,
+                                model = request,
                                 contentDescription = image.displayName,
                                 contentScale = ContentScale.Crop,
+                                error = painterResource(R.drawable.ic_broken_image),
                                 modifier = Modifier
                                     .aspectRatio(1f)
                                     .padding(1.dp)
