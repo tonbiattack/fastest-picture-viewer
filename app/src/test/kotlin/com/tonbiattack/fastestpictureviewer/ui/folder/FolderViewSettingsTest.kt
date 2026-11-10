@@ -2,6 +2,7 @@ package com.tonbiattack.fastestpictureviewer.ui.folder
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Before

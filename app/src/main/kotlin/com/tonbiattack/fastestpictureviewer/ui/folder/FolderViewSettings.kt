@@ -1,18 +1,10 @@
 package com.tonbiattack.fastestpictureviewer.ui.folder
 
 import android.content.Context
+import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-
-/** フォルダ一覧の並び順 */
-enum class FolderSortMode {
-    /** フォルダ内画像の最終更新日時降順 (既定) */
-    LATEST,
-
-    /** 最近閲覧したフォルダを先頭にし、未閲覧は更新日時降順 */
-    RECENT
-}
 
 /**
  * フォルダ一覧の表示設定。

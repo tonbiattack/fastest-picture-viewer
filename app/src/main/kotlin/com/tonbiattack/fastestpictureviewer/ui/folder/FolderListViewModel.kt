@@ -1,15 +1,17 @@
 package com.tonbiattack.fastestpictureviewer.ui.folder
 
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tonbiattack.fastestpictureviewer.core.util.FolderNames
+import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /** フォルダ一覧の 1 セル分 */
 data class FolderUiModel(
@@ -54,6 +57,18 @@ data class FolderListUiState(
     /** フォルダ一覧の並び順 */
     val sortMode: FolderSortMode = FolderSortMode.LATEST,
 
+    /** 復元する先頭インデックス */
+    val initialIndex: Int = 0,
+
+    /** 復元する先頭アイテムのピクセルオフセット */
+    val initialOffset: Int = 0,
+
+    /** 並び順ごとのスクロール位置の読み込みが完了したか */
+    val isScrollRestored: Boolean = false,
+
+    /** フィルタなしの並び順のフォルダキー (スクロール保存用) */
+    val allFolderKeys: List<String> = emptyList(),
+
     /** 背景同期中かどうか */
     val isSyncing: Boolean = false,
 
@@ -68,6 +83,9 @@ data class FolderListUiState(
 
     /** 検索中か */
     val isSearching: Boolean get() = searchQuery.isNotBlank()
+
+    /** 検索・お気に入りフィルタ中か (この間のスクロール位置は保存しない) */
+    val isFiltered: Boolean get() = isSearching || favoritesOnly
 }
 
 /** 内部で扱うフォルダ・代表画像・お気に入りの組み合わせ */
@@ -84,18 +102,33 @@ private data class FolderFilter(
     val favoritesOnly: Boolean
 )
 
+/** スクロール位置の復元情報 */
+private data class ScrollRestore(
+    val loaded: Boolean,
+    val anchorFolderKey: String?,
+    val fallbackIndex: Int,
+    val offsetPx: Int
+)
+
+/** UI 合成用のフィルタ + 復元情報 */
+private data class UiContext(
+    val filter: FolderFilter,
+    val restore: ScrollRestore
+) {
+    val isFiltered: Boolean get() = filter.query.isNotBlank() || filter.favoritesOnly
+}
+
 /**
  * フォルダ一覧の ViewModel。
  *
  * - Room の Flow をそのまま StateFlow にする。再取得中も直前の一覧を保持し続ける
  * - 検索・お気に入りフィルタはキャッシュ済みデータに対して行い、再スキャンしない
- * - 列数は [FolderViewSettings] に保存し、再起動後も維持する
- * - スクロール位置は SavedStateHandle に書き込み、プロセス再生成後も復元する
+ * - 列数・並び順は [FolderViewSettings] に保存し、再起動後も維持する
+ * - スクロール位置は並び順ごとに Room に保存し、アプリ再起動後も復元する (Issue #28)
  */
 class FolderListViewModel(
-    repository: GalleryRepository,
-    private val viewSettings: FolderViewSettings,
-    private val savedStateHandle: SavedStateHandle
+    private val repository: GalleryRepository,
+    private val viewSettings: FolderViewSettings
 ) : ViewModel() {
 
     /** 一覧の初回表示までの時間計測用 (JVM 単体テストでも動くよう System.nanoTime を使う) */
@@ -124,8 +157,27 @@ class FolderListViewModel(
         )
     }
 
+    private val scrollRestore = MutableStateFlow(
+        ScrollRestore(loaded = false, anchorFolderKey = null, fallbackIndex = 0, offsetPx = 0)
+    )
+
+    private var restoreJob: Job? = null
+    private var saveJob: Job? = null
+    private var latestIndex = 0
+    private var latestOffset = 0
+    private var latestSortMode = FolderSortMode.LATEST
+    private var hasPendingScroll = false
+
+    init {
+        // 並び順が変わるたびに、その並び順の保存位置を読み直す
+        viewModelScope.launch {
+            // StateFlow は同一値の再発行をしないため、そのまま購読する
+            viewSettings.sortMode.collect { mode -> loadScrollRestore(mode) }
+        }
+    }
+
     /**
-     * フォルダ集計 + 代表サムネイル + お気に入り + 同期状態 + 列数を合成する。
+     * フォルダ集計 + 代表サムネイル + お気に入り + 同期状態 + 列数 + スクロール復元を合成する。
      *
      * 除外設定が変わったら内側の Room クエリを購読し直す。Room の無効化通知だけに頼らず、
      * 解除直後に戻ってきた場合でも最新の一覧を確実に取得するための保険。
@@ -141,8 +193,10 @@ class FolderListViewModel(
                     repository.syncStatus,
                     viewSettings.columnCount,
                     viewSettings.sortMode,
-                    filterFlow
-                ) { data, status, columns, sortMode, filter ->
+                    combine(filterFlow, scrollRestore) { filter, restore ->
+                        UiContext(filter = filter, restore = restore)
+                    }
+                ) { data, status, columns, sortMode, context ->
                     if (!firstFrameLogged && data.summaries.isNotEmpty()) {
                         firstFrameLogged = true
                         val elapsedMs = (System.nanoTime() - startedAtNanos) / 1_000_000
@@ -166,9 +220,10 @@ class FolderListViewModel(
                         )
                     }
                     val visibleFolders = sortedFolders.filter { folder ->
-                        val matchesQuery = filter.query.isBlank() ||
-                            folder.folderName.contains(filter.query, ignoreCase = true)
-                        val matchesFavorite = !filter.favoritesOnly || folder.isFavorite
+                        val matchesQuery = context.filter.query.isBlank() ||
+                            folder.folderName.contains(context.filter.query, ignoreCase = true)
+                        val matchesFavorite =
+                            !context.filter.favoritesOnly || folder.isFavorite
                         matchesQuery && matchesFavorite
                     }
 
@@ -177,9 +232,21 @@ class FolderListViewModel(
                         folders = visibleFolders,
                         hasFolders = allFolders.isNotEmpty(),
                         columnCount = columns,
-                        searchQuery = filter.query,
-                        favoritesOnly = filter.favoritesOnly,
+                        searchQuery = context.filter.query,
+                        favoritesOnly = context.filter.favoritesOnly,
                         sortMode = sortMode,
+                        initialIndex = if (context.isFiltered) {
+                            0
+                        } else {
+                            FolderListScrollResolver.resolve(
+                                folders = sortedFolders,
+                                anchorFolderKey = context.restore.anchorFolderKey,
+                                fallbackIndex = context.restore.fallbackIndex
+                            )
+                        },
+                        initialOffset = if (context.isFiltered) 0 else context.restore.offsetPx,
+                        isScrollRestored = context.restore.loaded,
+                        allFolderKeys = sortedFolders.map { it.folderKey },
                         isSyncing = status.isRunning,
                         isInitialScan = status.isInitialScan,
                         errorMessage = status.errorMessage
@@ -192,6 +259,34 @@ class FolderListViewModel(
                 started = SharingStarted.WhileSubscribed(5_000),
                 initialValue = FolderListUiState(isLoadingFirstFrame = true)
             )
+
+    private fun loadScrollRestore(mode: FolderSortMode) {
+        restoreJob?.cancel()
+        saveJob?.cancel()
+        latestIndex = 0
+        latestOffset = 0
+        latestSortMode = mode
+        hasPendingScroll = false
+        scrollRestore.value = ScrollRestore(
+            loaded = false,
+            anchorFolderKey = null,
+            fallbackIndex = 0,
+            offsetPx = 0
+        )
+        restoreJob = viewModelScope.launch {
+            val saved = runCatching { repository.getFolderListScrollPosition(mode) }.getOrNull()
+            scrollRestore.value = if (saved == null) {
+                ScrollRestore(loaded = true, anchorFolderKey = null, fallbackIndex = 0, offsetPx = 0)
+            } else {
+                ScrollRestore(
+                    loaded = true,
+                    anchorFolderKey = saved.anchorFolderKey,
+                    fallbackIndex = saved.anchorIndex,
+                    offsetPx = saved.anchorOffsetPx
+                )
+            }
+        }
+    }
 
     /** フォルダ名検索の入力を更新する */
     fun onSearchQueryChange(query: String) {
@@ -213,17 +308,69 @@ class FolderListViewModel(
         viewSettings.setColumnCount(count)
     }
 
-    /** 並び順を変更して永続化する */
+    /** 並び順を変更して永続化する。切替前に現在の位置を保存する */
     fun setSortMode(mode: FolderSortMode) {
+        if (mode != viewSettings.sortMode.value) {
+            flushScrollPosition()
+        }
         viewSettings.setSortMode(mode)
     }
 
-    /** スクロール位置をプロセス死に耐える形で保存する */
-    fun saveScrollIndex(index: Int) {
-        savedStateHandle[KEY_SCROLL_INDEX] = index
+    /** スクロール中の位置を軽量に受け取り、500ms の debounce 後に永続化する */
+    fun onScrollPositionChanged(index: Int, offsetPx: Int) {
+        val state = uiState.value
+        if (!state.isScrollRestored || state.isFiltered) return
+        latestIndex = index
+        latestOffset = offsetPx
+        latestSortMode = viewSettings.sortMode.value
+        hasPendingScroll = true
+        saveJob?.cancel()
+        saveJob = viewModelScope.launch {
+            delay(SAVE_DEBOUNCE_MS)
+            val snapshot = snapshotScrollForSave() ?: return@launch
+            hasPendingScroll = false
+            persistScrollPosition(snapshot)
+        }
     }
 
-    fun initialScrollIndex(): Int = savedStateHandle[KEY_SCROLL_INDEX] ?: 0
+    /** 画面離脱時に最後の位置を即座に保存する */
+    fun flushScrollPosition() {
+        saveJob?.cancel()
+        // 並び順切替中でも旧モードのキーと一致するよう、その場でスナップショットを取る
+        val snapshot = snapshotScrollForSave() ?: return
+        hasPendingScroll = false
+        viewModelScope.launch {
+            persistScrollPosition(snapshot)
+        }
+    }
+
+    private fun snapshotScrollForSave(): ScrollSave? {
+        val state = uiState.value
+        if (!hasPendingScroll || state.isFiltered || state.allFolderKeys.isEmpty()) return null
+        val index = latestIndex.coerceIn(0, state.allFolderKeys.lastIndex)
+        return ScrollSave(
+            sortMode = latestSortMode,
+            anchorFolderKey = state.allFolderKeys.getOrNull(index),
+            anchorIndex = index,
+            offsetPx = latestOffset
+        )
+    }
+
+    private suspend fun persistScrollPosition(snapshot: ScrollSave) {
+        repository.saveFolderListScrollPosition(
+            sortMode = snapshot.sortMode,
+            anchorFolderKey = snapshot.anchorFolderKey,
+            anchorIndex = snapshot.anchorIndex,
+            anchorOffsetPx = snapshot.offsetPx
+        )
+    }
+
+    private data class ScrollSave(
+        val sortMode: FolderSortMode,
+        val anchorFolderKey: String?,
+        val anchorIndex: Int,
+        val offsetPx: Int
+    )
 
     private fun List<FolderSummaryRow>.toUiModels(
         representatives: List<RepresentativeImageRow>,
@@ -246,6 +393,6 @@ class FolderListViewModel(
     }
 
     private companion object {
-        const val KEY_SCROLL_INDEX = "folderListScrollIndex"
+        const val SAVE_DEBOUNCE_MS = 500L
     }
 }

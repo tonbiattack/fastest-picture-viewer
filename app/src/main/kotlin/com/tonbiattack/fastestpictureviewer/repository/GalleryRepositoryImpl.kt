@@ -3,11 +3,13 @@ package com.tonbiattack.fastestpictureviewer.repository
 import android.os.SystemClock
 import android.util.Log
 import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
+import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.core.util.NaturalSortKey
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
+import com.tonbiattack.fastestpictureviewer.data.FolderListScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
@@ -51,6 +53,7 @@ class GalleryRepositoryImpl(
     private val favoriteFolderDao = db.favoriteFolderDao()
     private val excludedFolderDao = db.excludedFolderDao()
     private val folderScrollPositionDao = db.folderScrollPositionDao()
+    private val folderListScrollPositionDao = db.folderListScrollPositionDao()
     private val recentFolderDao = db.recentFolderDao()
 
     /** 同期の二重実行を防ぐ。実行中の要求は待たずにスキップする */
@@ -178,6 +181,32 @@ class GalleryRepositoryImpl(
                 FolderScrollPositionEntity(
                     folderKey = folderKey,
                     anchorItemId = anchorItemId,
+                    anchorIndex = anchorIndex,
+                    anchorOffsetPx = anchorOffsetPx,
+                    updatedAtSec = nowSeconds()
+                )
+            )
+        }
+    }
+
+    override suspend fun getFolderListScrollPosition(
+        sortMode: FolderSortMode
+    ): FolderListScrollPositionEntity? = withContext(Dispatchers.IO) {
+        folderListScrollPositionDao.get(sortMode.name)
+    }
+
+    override suspend fun saveFolderListScrollPosition(
+        sortMode: FolderSortMode,
+        anchorFolderKey: String?,
+        anchorIndex: Int,
+        anchorOffsetPx: Int
+    ) {
+        // 画面離脱直後でも最後の位置が失われないよう、キャンセル不可で書き込む
+        withContext(Dispatchers.IO + NonCancellable) {
+            folderListScrollPositionDao.upsert(
+                FolderListScrollPositionEntity(
+                    sortMode = sortMode.name,
+                    anchorFolderKey = anchorFolderKey,
                     anchorIndex = anchorIndex,
                     anchorOffsetPx = anchorOffsetPx,
                     updatedAtSec = nowSeconds()

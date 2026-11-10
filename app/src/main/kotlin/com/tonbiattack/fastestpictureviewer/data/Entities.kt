@@ -105,6 +105,28 @@ data class FolderScrollPositionEntity(
     @ColumnInfo(name = "updatedAtSec") val updatedAtSec: Long
 )
 
+/**
+ * フォルダ一覧のスクロール位置。並び順 (LATEST/RECENT) ごとに独立して保持する。
+ * 検索・お気に入りフィルタ中の位置は保存しない。
+ */
+@Entity(tableName = "folder_list_scroll_positions")
+data class FolderListScrollPositionEntity(
+    /** 並び順の識別子 (FolderSortMode.name) */
+    @PrimaryKey @ColumnInfo(name = "sortMode") val sortMode: String,
+
+    /** 先頭付近の安定したフォルダ識別子。見つからない場合は null */
+    @ColumnInfo(name = "anchorFolderKey") val anchorFolderKey: String?,
+
+    /** 保存時点の先頭インデックス (アンカーが見つからない場合のフォールバック) */
+    @ColumnInfo(name = "anchorIndex") val anchorIndex: Int,
+
+    /** 先頭アイテムのピクセルオフセット */
+    @ColumnInfo(name = "anchorOffsetPx") val anchorOffsetPx: Int,
+
+    /** 更新日時 (エポック秒) */
+    @ColumnInfo(name = "updatedAtSec") val updatedAtSec: Long
+)
+
 /** 最近閲覧したフォルダ。フォルダを開いた時刻だけを更新する */
 @Entity(tableName = "recent_folders")
 data class RecentFolderEntity(

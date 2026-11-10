@@ -65,6 +65,17 @@ interface FolderScrollPositionDao {
     suspend fun upsert(entity: FolderScrollPositionEntity)
 }
 
+/** フォルダ一覧の並び順ごとのスクロール位置 DAO */
+@Dao
+interface FolderListScrollPositionDao {
+
+    @Query("SELECT * FROM folder_list_scroll_positions WHERE sortMode = :sortMode")
+    suspend fun get(sortMode: String): FolderListScrollPositionEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: FolderListScrollPositionEntity)
+}
+
 /** 最近閲覧フォルダの DAO */
 @Dao
 interface RecentFolderDao {

@@ -1,8 +1,10 @@
 package com.tonbiattack.fastestpictureviewer.repository
 
+import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
+import com.tonbiattack.fastestpictureviewer.data.FolderListScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
@@ -85,6 +87,19 @@ interface GalleryRepository {
     suspend fun saveScrollPosition(
         folderKey: String,
         anchorItemId: String?,
+        anchorIndex: Int,
+        anchorOffsetPx: Int
+    )
+
+    /** フォルダ一覧の並び順ごとのスクロール位置を取得する */
+    suspend fun getFolderListScrollPosition(
+        sortMode: FolderSortMode
+    ): FolderListScrollPositionEntity?
+
+    /** フォルダ一覧の並び順ごとのスクロール位置を保存する */
+    suspend fun saveFolderListScrollPosition(
+        sortMode: FolderSortMode,
+        anchorFolderKey: String?,
         anchorIndex: Int,
         anchorOffsetPx: Int
     )
