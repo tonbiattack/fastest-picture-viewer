@@ -103,7 +103,7 @@ P0 イシュー (#1〜#4) の MVP と、P1 の一部 (#5 差分同期・#6 サ�
 - 状態復元: ViewModel + SavedStateHandle でフォルダ・スクロール・閲覧位置を復元
 - テスト: Robolectric による Room DAO 検証、差分計算・同期ポリシー・ViewModel の単体テスト (`gradlew :app:testDebugUnitTest`)
 
-PR #8 は未マージ。2026-11-10 に OPPO Reno13 A (ColorOS 16.0.5 / Android 16 / API 36) で実機検証を実施した。
+PR #8 は main にマージ済み。2026-11-10 に OPPO Reno13 A (ColorOS 16.0.5 / Android 16 / API 36) で実機検証を実施した。
 画像 350,955 件・フォルダ 2,640 件で、キャッシュあり起動 TotalTime は平均 1.35 秒、一覧初回表示は 1.5〜2.1 秒。
 一覧↔詳細の 100 往復で空白表示・クラッシュなし。参考目標 200ms はこの規模では未達。
 SD カード抜き差し・権限拒否時の挙動は未検証で、詳細は [実機検証手順](docs/device-verification.md) に記録している。
