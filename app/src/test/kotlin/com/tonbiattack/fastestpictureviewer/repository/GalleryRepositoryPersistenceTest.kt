@@ -3,6 +3,7 @@ package com.tonbiattack.fastestpictureviewer.repository
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
 import kotlinx.coroutines.flow.first
@@ -57,6 +58,41 @@ class GalleryRepositoryPersistenceTest {
         val updated = repository.getScrollPosition("v:Pictures/A/")
         assertEquals(null, updated?.anchorItemId)
         assertEquals(7, updated?.anchorIndex)
+    }
+
+    @Test
+    fun `フォルダ一覧のスクロール位置は並び順ごとに独立して保存される`() = runTest {
+        repository.saveFolderListScrollPosition(
+            sortMode = FolderSortMode.LATEST,
+            anchorFolderKey = "v:Pictures/A/",
+            anchorIndex = 5,
+            anchorOffsetPx = 10
+        )
+        repository.saveFolderListScrollPosition(
+            sortMode = FolderSortMode.RECENT,
+            anchorFolderKey = "v:Pictures/B/",
+            anchorIndex = 3,
+            anchorOffsetPx = 20
+        )
+
+        val latest = repository.getFolderListScrollPosition(FolderSortMode.LATEST)
+        val recent = repository.getFolderListScrollPosition(FolderSortMode.RECENT)
+        assertEquals("v:Pictures/A/", latest?.anchorFolderKey)
+        assertEquals(5, latest?.anchorIndex)
+        assertEquals(10, latest?.anchorOffsetPx)
+        assertEquals("v:Pictures/B/", recent?.anchorFolderKey)
+        assertEquals(3, recent?.anchorIndex)
+        assertEquals(20, recent?.anchorOffsetPx)
+
+        // 同じ並び順は上書きされ、別の並び順には影響しない
+        repository.saveFolderListScrollPosition(
+            sortMode = FolderSortMode.LATEST,
+            anchorFolderKey = null,
+            anchorIndex = 0,
+            anchorOffsetPx = 0
+        )
+        assertEquals(null, repository.getFolderListScrollPosition(FolderSortMode.LATEST)?.anchorFolderKey)
+        assertEquals("v:Pictures/B/", repository.getFolderListScrollPosition(FolderSortMode.RECENT)?.anchorFolderKey)
     }
 
     @Test

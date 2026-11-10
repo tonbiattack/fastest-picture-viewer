@@ -1,10 +1,11 @@
 package com.tonbiattack.fastestpictureviewer.ui.folder
 
-import androidx.lifecycle.SavedStateHandle
 import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
+import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
+import com.tonbiattack.fastestpictureviewer.data.FolderListScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
@@ -44,11 +45,14 @@ import org.junit.Test
 class FolderListViewModelTest {
 
     /** テスト用の列数設定 */
-    private class FakeViewSettings(initial: Int = 2) : FolderViewSettings {
+    private class FakeViewSettings(
+        initial: Int = 2,
+        initialSortMode: FolderSortMode = FolderSortMode.LATEST
+    ) : FolderViewSettings {
         private val _columnCount = MutableStateFlow(initial)
         override val columnCount: StateFlow<Int> = _columnCount
 
-        private val _sortMode = MutableStateFlow(FolderSortMode.LATEST)
+        private val _sortMode = MutableStateFlow(initialSortMode)
         override val sortMode: StateFlow<FolderSortMode> = _sortMode
 
         override fun setColumnCount(count: Int) {
@@ -115,6 +119,28 @@ class FolderListViewModelTest {
             anchorIndex: Int,
             anchorOffsetPx: Int
         ) = Unit
+
+        val folderListScroll =
+            mutableMapOf<FolderSortMode, FolderListScrollPositionEntity>()
+
+        override suspend fun getFolderListScrollPosition(
+            sortMode: FolderSortMode
+        ): FolderListScrollPositionEntity? = folderListScroll[sortMode]
+
+        override suspend fun saveFolderListScrollPosition(
+            sortMode: FolderSortMode,
+            anchorFolderKey: String?,
+            anchorIndex: Int,
+            anchorOffsetPx: Int
+        ) {
+            folderListScroll[sortMode] = FolderListScrollPositionEntity(
+                sortMode = sortMode.name,
+                anchorFolderKey = anchorFolderKey,
+                anchorIndex = anchorIndex,
+                anchorOffsetPx = anchorOffsetPx,
+                updatedAtSec = 1L
+            )
+        }
     }
 
     @Before
@@ -147,7 +173,7 @@ class FolderListViewModelTest {
     @Test
     fun `同期開始中でも既存の一覧はクリアされない`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
+        val vm = FolderListViewModel(repo, FakeViewSettings())
         // StateFlow は購読されないと開始しないため、背景で購読する
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
@@ -175,7 +201,7 @@ class FolderListViewModelTest {
     @Test
     fun `キャッシュが全く無い初回スキャン中は進捗表示になる`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
+        val vm = FolderListViewModel(repo, FakeViewSettings())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         repo.statusFlow.value = SyncStatus(isRunning = true, isInitialScan = true)
@@ -187,7 +213,7 @@ class FolderListViewModelTest {
     @Test
     fun `同期失敗メッセージは一覧とは別に保持される`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
+        val vm = FolderListViewModel(repo, FakeViewSettings())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val key = FolderKeys.create("v", "Pictures/a/")
@@ -208,7 +234,7 @@ class FolderListViewModelTest {
     @Test
     fun `同期後の並び替えがUI状態に反映される`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
+        val vm = FolderListViewModel(repo, FakeViewSettings())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val a = summary(FolderKeys.create("v", "Pictures/A/"), modifiedSec = 100L)
@@ -232,7 +258,7 @@ class FolderListViewModelTest {
     @Test
     fun `検索は大文字小文字を区別せず部分一致で絞り込む`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
+        val vm = FolderListViewModel(repo, FakeViewSettings())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val chatGpt = summary(FolderKeys.create("v", "Pictures/ChatGPT/"))
@@ -256,7 +282,7 @@ class FolderListViewModelTest {
     @Test
     fun `日本語フォルダ名でも部分一致検索できる`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
+        val vm = FolderListViewModel(repo, FakeViewSettings())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val trip = summary(FolderKeys.create("v", "Pictures/旅行写真/"))
@@ -272,7 +298,7 @@ class FolderListViewModelTest {
     @Test
     fun `お気に入りのみ表示で絞り込める`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
+        val vm = FolderListViewModel(repo, FakeViewSettings())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val favoriteKey = FolderKeys.create("v", "Pictures/Favorite/")
@@ -299,7 +325,7 @@ class FolderListViewModelTest {
     @Test
     fun `検索とお気に入りフィルタを併用できる`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings(), SavedStateHandle())
+        val vm = FolderListViewModel(repo, FakeViewSettings())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val favoriteA = FolderKeys.create("v", "Pictures/TravelA/")
@@ -321,7 +347,7 @@ class FolderListViewModelTest {
     @Test
     fun `列数を変更すると設定とUI状態に即時反映される`() = runTest {
         val settings = FakeViewSettings(initial = 3)
-        val vm = FolderListViewModel(FakeRepository(), settings, SavedStateHandle())
+        val vm = FolderListViewModel(FakeRepository(), settings)
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
         advanceUntilIdle()
         assertEquals(3, vm.uiState.value.columnCount)
@@ -341,7 +367,7 @@ class FolderListViewModelTest {
     fun `最近閲覧順は閲覧済みを先頭にし未閲覧は更新日時順にする`() = runTest {
         val repo = FakeRepository()
         val settings = FakeViewSettings()
-        val vm = FolderListViewModel(repo, settings, SavedStateHandle())
+        val vm = FolderListViewModel(repo, settings)
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val a = summary(FolderKeys.create("v", "Pictures/A/"), modifiedSec = 100L)
@@ -372,16 +398,124 @@ class FolderListViewModelTest {
     }
 
     @Test
-    fun `スクロール位置はSavedStateHandleを通じて保存と復元ができる`() = runTest {
-        val handle = SavedStateHandle(mapOf(folderListScrollKey to 7))
-        val vm = FolderListViewModel(FakeRepository(), FakeViewSettings(), handle)
-        assertEquals(7, vm.initialScrollIndex())
+    fun `保存済みのスクロール位置をアンカーから復元する`() = runTest {
+        val repo = FakeRepository()
+        val a = summary(FolderKeys.create("v", "Pictures/A/"), modifiedSec = 100L)
+        val b = summary(FolderKeys.create("v", "Pictures/B/"), modifiedSec = 200L)
+        val c = summary(FolderKeys.create("v", "Pictures/C/"), modifiedSec = 300L)
+        // DAO は更新日時降順で返す想定
+        repo.foldersFlow.value = listOf(c, b, a)
+        repo.folderListScroll[FolderSortMode.LATEST] = FolderListScrollPositionEntity(
+            sortMode = FolderSortMode.LATEST.name,
+            anchorFolderKey = b.folderKey,
+            anchorIndex = 1,
+            anchorOffsetPx = 48,
+            updatedAtSec = 1L
+        )
+        val vm = FolderListViewModel(repo, FakeViewSettings())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
 
-        vm.saveScrollIndex(42)
-        assertEquals(42, vm.initialScrollIndex())
+        val state = vm.uiState.value
+        assertTrue(state.isScrollRestored)
+        assertEquals(1, state.initialIndex)
+        assertEquals(48, state.initialOffset)
+        assertEquals(listOf(c.folderKey, b.folderKey, a.folderKey), state.allFolderKeys)
     }
 
-    private companion object {
-        const val folderListScrollKey = "folderListScrollIndex"
+    @Test
+    fun `スクロール位置はdebounce後にフォルダキーで保存される`() = runTest {
+        val repo = FakeRepository()
+        val a = summary(FolderKeys.create("v", "Pictures/A/"), modifiedSec = 300L)
+        val b = summary(FolderKeys.create("v", "Pictures/B/"), modifiedSec = 200L)
+        val c = summary(FolderKeys.create("v", "Pictures/C/"), modifiedSec = 100L)
+        repo.foldersFlow.value = listOf(a, b, c)
+        val vm = FolderListViewModel(repo, FakeViewSettings())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.onScrollPositionChanged(index = 2, offsetPx = 32)
+        advanceUntilIdle()
+
+        val saved = repo.folderListScroll[FolderSortMode.LATEST]
+        assertEquals(c.folderKey, saved?.anchorFolderKey)
+        assertEquals(2, saved?.anchorIndex)
+        assertEquals(32, saved?.anchorOffsetPx)
+    }
+
+    @Test
+    fun `検索中やお気に入り絞り込み中のスクロールは保存しない`() = runTest {
+        val repo = FakeRepository()
+        val a = summary(FolderKeys.create("v", "Pictures/A/"))
+        val b = summary(FolderKeys.create("v", "Pictures/B/"))
+        repo.foldersFlow.value = listOf(a, b)
+        repo.favoriteFoldersFlow.value = listOf(
+            FavoriteFolderEntity(a.folderKey, "v", "Pictures/A/", 1L)
+        )
+        val vm = FolderListViewModel(repo, FakeViewSettings())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.toggleFavoritesOnly()
+        advanceUntilIdle()
+        vm.onScrollPositionChanged(index = 0, offsetPx = 10)
+        advanceUntilIdle()
+        assertTrue(repo.folderListScroll.isEmpty())
+
+        vm.toggleFavoritesOnly()
+        vm.onSearchQueryChange("A")
+        advanceUntilIdle()
+        vm.onScrollPositionChanged(index = 0, offsetPx = 10)
+        advanceUntilIdle()
+        assertTrue(repo.folderListScroll.isEmpty())
+
+        // フィルタ解除後の通常一覧では保存される
+        vm.clearSearch()
+        advanceUntilIdle()
+        vm.onScrollPositionChanged(index = 1, offsetPx = 20)
+        advanceUntilIdle()
+        assertEquals(b.folderKey, repo.folderListScroll[FolderSortMode.LATEST]?.anchorFolderKey)
+    }
+
+    @Test
+    fun `並び順ごとに独立したスクロール位置を復元する`() = runTest {
+        val repo = FakeRepository()
+        val a = summary(FolderKeys.create("v", "Pictures/A/"), modifiedSec = 300L)
+        val b = summary(FolderKeys.create("v", "Pictures/B/"), modifiedSec = 200L)
+        val c = summary(FolderKeys.create("v", "Pictures/C/"), modifiedSec = 100L)
+        repo.foldersFlow.value = listOf(a, b, c)
+        repo.folderListScroll[FolderSortMode.LATEST] = FolderListScrollPositionEntity(
+            sortMode = FolderSortMode.LATEST.name,
+            anchorFolderKey = b.folderKey,
+            anchorIndex = 1,
+            anchorOffsetPx = 12,
+            updatedAtSec = 1L
+        )
+        repo.folderListScroll[FolderSortMode.RECENT] = FolderListScrollPositionEntity(
+            sortMode = FolderSortMode.RECENT.name,
+            anchorFolderKey = c.folderKey,
+            anchorIndex = 2,
+            anchorOffsetPx = 24,
+            updatedAtSec = 1L
+        )
+        val settings = FakeViewSettings()
+        val vm = FolderListViewModel(repo, settings)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+        assertEquals(1, vm.uiState.value.initialIndex)
+        assertEquals(12, vm.uiState.value.initialOffset)
+
+        vm.setSortMode(FolderSortMode.RECENT)
+        advanceUntilIdle()
+        assertEquals(2, vm.uiState.value.initialIndex)
+        assertEquals(24, vm.uiState.value.initialOffset)
+        assertEquals(FolderSortMode.RECENT, vm.uiState.value.sortMode)
+
+        // 位置を動かさずに戻した場合、LATEST の保存位置を上書きしない
+        vm.setSortMode(FolderSortMode.LATEST)
+        advanceUntilIdle()
+        assertEquals(1, vm.uiState.value.initialIndex)
+        assertEquals(12, vm.uiState.value.initialOffset)
+        assertEquals(b.folderKey, repo.folderListScroll[FolderSortMode.LATEST]?.anchorFolderKey)
     }
 }

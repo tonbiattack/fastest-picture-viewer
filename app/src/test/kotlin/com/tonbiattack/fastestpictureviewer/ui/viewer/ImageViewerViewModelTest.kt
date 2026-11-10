@@ -1,9 +1,11 @@
 package com.tonbiattack.fastestpictureviewer.ui.viewer
 
 import androidx.lifecycle.SavedStateHandle
+import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
+import com.tonbiattack.fastestpictureviewer.data.FolderListScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
@@ -78,6 +80,15 @@ class ImageViewerViewModelTest {
         override suspend fun saveScrollPosition(
             folderKey: String,
             anchorItemId: String?,
+            anchorIndex: Int,
+            anchorOffsetPx: Int
+        ) = Unit
+        override suspend fun getFolderListScrollPosition(
+            sortMode: FolderSortMode
+        ): FolderListScrollPositionEntity? = null
+        override suspend fun saveFolderListScrollPosition(
+            sortMode: FolderSortMode,
+            anchorFolderKey: String?,
             anchorIndex: Int,
             anchorOffsetPx: Int
         ) = Unit

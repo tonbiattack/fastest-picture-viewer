@@ -59,7 +59,7 @@ class AppContainer(
             val savedStateHandle = with(extras) { createSavedStateHandle() }
             return when {
                 modelClass.isAssignableFrom(FolderListViewModel::class.java) ->
-                    FolderListViewModel(repository, folderViewSettings, savedStateHandle)
+                    FolderListViewModel(repository, folderViewSettings)
                 modelClass.isAssignableFrom(ExcludedFoldersViewModel::class.java) ->
                     ExcludedFoldersViewModel(repository)
                 modelClass.isAssignableFrom(FavoriteImagesViewModel::class.java) ->

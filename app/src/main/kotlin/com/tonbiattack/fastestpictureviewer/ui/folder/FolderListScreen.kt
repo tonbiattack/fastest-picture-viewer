@@ -47,8 +47,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -69,6 +71,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.tonbiattack.fastestpictureviewer.R
 import com.tonbiattack.fastestpictureviewer.core.image.folderThumbnailRequest
+import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
 import com.tonbiattack.fastestpictureviewer.ui.components.FastScroller
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -263,6 +266,9 @@ fun FolderListScreen(
                 // 初回スキャン中でまだデータが無い
                 state.showInitialScanProgress -> InitialScanHint()
 
+                // 並び順ごとのスクロール位置を読み込み中
+                !state.isScrollRestored -> LoadingHint()
+
                 // フィルタ後に 0 件
                 state.folders.isEmpty() && !state.isSyncing -> EmptyHint(
                     searchQuery = state.searchQuery,
@@ -270,19 +276,22 @@ fun FolderListScreen(
                     hasFolders = state.hasFolders
                 )
 
-                else -> FolderGrid(
-                    folders = state.folders,
-                    columnCount = state.columnCount,
-                    // プロセス再生成後もスクロール基準を SavedStateHandle から復元する
-                    initialScrollIndex = viewModel.initialScrollIndex(),
-                    onScrollIndexChange = viewModel::saveScrollIndex,
-                    onFavoriteToggle = { folder ->
-                        onSetFolderFavorite(folder, !folder.isFavorite)
-                    },
-                    onExcludeRequest = { pendingExclude = it },
-                    onOpenFolder = onOpenFolder,
-                    modifier = Modifier.fillMaxSize()
-                )
+                else -> key(state.sortMode, state.isFiltered) {
+                    FolderGrid(
+                        folders = state.folders,
+                        columnCount = state.columnCount,
+                        initialIndex = state.initialIndex,
+                        initialOffset = state.initialOffset,
+                        onScrollPositionChanged = viewModel::onScrollPositionChanged,
+                        onFlushScrollPosition = viewModel::flushScrollPosition,
+                        onFavoriteToggle = { folder ->
+                            onSetFolderFavorite(folder, !folder.isFavorite)
+                        },
+                        onExcludeRequest = { pendingExclude = it },
+                        onOpenFolder = onOpenFolder,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
 
             // FR-07: 権限不足でも既存キャッシュは表示し、案内だけ重ねる
@@ -389,20 +398,30 @@ private fun DisplaySettingsDialog(
 private fun FolderGrid(
     folders: List<FolderUiModel>,
     columnCount: Int,
-    initialScrollIndex: Int,
-    onScrollIndexChange: (Int) -> Unit,
+    initialIndex: Int,
+    initialOffset: Int,
+    onScrollPositionChanged: (Int, Int) -> Unit,
+    onFlushScrollPosition: () -> Unit,
     onFavoriteToggle: (FolderUiModel) -> Unit,
     onExcludeRequest: (FolderUiModel) -> Unit,
     onOpenFolder: (FolderUiModel) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val gridState = rememberLazyGridState(initialFirstVisibleItemIndex = initialScrollIndex)
+    val gridState = rememberLazyGridState(
+        initialFirstVisibleItemIndex = initialIndex,
+        initialFirstVisibleItemScrollOffset = initialOffset
+    )
 
-    // Issue #4: スクロール位置をプロセス死に耐える形で ViewModel 経由で記録する
+    // Issue #28: スクロール位置を並び順ごとに ViewModel 経由で保存する
     LaunchedEffect(gridState) {
-        snapshotFlow { gridState.firstVisibleItemIndex }
+        snapshotFlow {
+            gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset
+        }
             .distinctUntilChanged()
-            .collect { onScrollIndexChange(it) }
+            .collect { (index, offset) -> onScrollPositionChanged(index, offset) }
+    }
+    DisposableEffect(gridState) {
+        onDispose { onFlushScrollPosition() }
     }
 
     Box(modifier = modifier) {

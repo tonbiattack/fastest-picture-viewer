@@ -16,6 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * - favorite_folders:         フォルダ単位のお気に入り
  * - excluded_folders:         フォルダ一覧から除外するフォルダ (非破壊)
  * - folder_scroll_positions:  フォルダ別の画像一覧スクロール位置
+ * - folder_list_scroll_positions: フォルダ一覧の並び順ごとのスクロール位置
  * - recent_folders:           最近閲覧したフォルダ
  */
 @Database(
@@ -27,9 +28,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FavoriteFolderEntity::class,
         ExcludedFolderEntity::class,
         FolderScrollPositionEntity::class,
+        FolderListScrollPositionEntity::class,
         RecentFolderEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -41,6 +43,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun favoriteFolderDao(): FavoriteFolderDao
     abstract fun excludedFolderDao(): ExcludedFolderDao
     abstract fun folderScrollPositionDao(): FolderScrollPositionDao
+    abstract fun folderListScrollPositionDao(): FolderListScrollPositionDao
     abstract fun recentFolderDao(): RecentFolderDao
 
     companion object {
@@ -57,7 +60,8 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_2_3,
                 MIGRATION_3_4,
                 MIGRATION_4_5,
-                MIGRATION_5_6
+                MIGRATION_5_6,
+                MIGRATION_6_7
             ).build()
 
         /** テスト用のメモリ DB を構築する */
@@ -158,6 +162,24 @@ abstract class AppDatabase : RoomDatabase() {
                         `folderKey` TEXT NOT NULL,
                         `openedAtSec` INTEGER NOT NULL,
                         PRIMARY KEY(`folderKey`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        /** v6 → v7: フォルダ一覧の並び順ごとのスクロール位置を追加する。 */
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `folder_list_scroll_positions` (
+                        `sortMode` TEXT NOT NULL,
+                        `anchorFolderKey` TEXT,
+                        `anchorIndex` INTEGER NOT NULL,
+                        `anchorOffsetPx` INTEGER NOT NULL,
+                        `updatedAtSec` INTEGER NOT NULL,
+                        PRIMARY KEY(`sortMode`)
                     )
                     """.trimIndent()
                 )
