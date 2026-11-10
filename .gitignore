@@ -14,3 +14,8 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+
+# 署名鍵・パスワード (絶対にコミットしない)
+*.jks
+*.keystore
+keystore.properties

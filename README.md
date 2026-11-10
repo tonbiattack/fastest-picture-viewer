@@ -53,6 +53,9 @@
 ## 開発ドキュメント
 
 - [仕様書（最新版）](docs/specification.md)
+- [Windows 11 ビルド・テスト環境手順](docs/build-environment.md)
+- [実機（OPPO Reno13 A）検証手順](docs/device-verification.md)
+- [署名鍵の運用方針](docs/signing-policy.md)
 - [実装指示の参考資料](docs/gpt/spec.md)
 - [既存ギャラリーの課題分析](docs/gpt/既存分析.md)
 - [過去の設計メモ](docs/gpt/old/仕様.md)
@@ -60,15 +63,20 @@
 
 ## 開発状況
 
-P0 イシュー (#1〜#4) の MVP 実装済み (Kotlin / Compose / Room / Coil / MediaStore)。
+P0 イシュー (#1〜#4) の MVP と、P1 の一部 (#5 差分同期・#6 サムネイルキャッシュ) を実装済み
+(Kotlin / Compose / Room / Coil / MediaStore)。
 
 - フォルダ一覧 (Room キャッシュ即表示・更新日時降順) / フォルダ内グリッド (ファイル名昇順) / 画像ビューア (ページャ・ズーム)
 - 権限: Android 14 部分アクセスも含めたレベル判定。権限拒否時はキャッシュを消さず案内表示
-- 同期: 起動・復帰時の差分走査 + 手動更新による完全走査 (削除反映)。ボリューム単位の失敗時は当該ボリュームのキャッシュを保持
+- 同期: MediaStore の世代番号で変更のないボリュームをスキップ。変更時は削除・改名・移動も反映。
+  MediaStore 変更通知と起動・復帰時の差分走査、手動更新の完全走査に対応。失敗時は当該ボリュームのキャッシュを保持
+- サムネイル: Coil のメモリ/ディスクキャッシュを更新日時キーで管理。ビューアの前後 1 枚を先読みし、
+  メモリ逼迫時はメモリキャッシュのみ解放。キャッシュクリア UI 付き
 - 状態復元: ViewModel + SavedStateHandle でフォルダ・スクロール・閲覧位置を復元
-- テスト: Robolectric による Room DAO 検証、差分計算・ViewModel の単体テスト (`gradlew :app:testDebugUnitTest`)
+- テスト: Robolectric による Room DAO 検証、差分計算・同期ポリシー・ViewModel の単体テスト (`gradlew :app:testDebugUnitTest`)
 
-PR #8 は未マージ。OPPO Reno13 A上での実機検証、画像2,000枚以上での性能計測、SDカードを利用している場合の検証は今後のタスク。
+PR #8 は未マージ。OPPO Reno13 A上での実機検証、画像2,000枚以上での性能計測、
+SDカードを利用している場合の検証は [実機検証手順](docs/device-verification.md) に沿って今後実施する。
 
 ## プライバシー
 
@@ -84,7 +92,25 @@ gradlew :app:testDebugUnitTest
 gradlew :app:assembleDebug
 ```
 
-Android SDK (compileSdk 36) と JDK 17 以上が必要です。SDK の場所が標準でない場合は `local.properties` に `sdk.dir` を設定してください。
+Windows では環境確認とテスト・ビルドをまとめて再実行できます。
+
+```powershell
+# 初回のみ: cmdline-tools の配置と環境変数設定
+powershell -ExecutionPolicy Bypass -File scripts\setup-android-env.ps1
+
+# 環境確認
+powershell -ExecutionPolicy Bypass -File scripts\check-env.ps1
+
+# 単体テスト + debug APK ビルド
+powershell -ExecutionPolicy Bypass -File scripts\build-and-test.ps1
+
+# 実機（接続・導入・計測・ログ）
+powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Devices
+```
+
+実機検証の詳細は [実機（OPPO Reno13 A）検証手順](docs/device-verification.md) を参照してください。
+
+Android SDK (compileSdk 36) と JDK 17 以上が必要です。SDK の場所が標準でない場合は `local.properties` に `sdk.dir` を設定してください。詳細は [Windows 11 ビルド・テスト環境手順](docs/build-environment.md) を参照してください。
 
 ## OPPO Reno13 Aへの導入・更新（Windows PowerShell）
 
