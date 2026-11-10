@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- アイコンの背景色 -->
+<!-- アイコンの背景色 (ダークネイビー) -->
 <resources>
-    <color name="ic_launcher_background">#1B6B93</color>
+    <color name="ic_launcher_background">#0E1B2A</color>
 </resources>
