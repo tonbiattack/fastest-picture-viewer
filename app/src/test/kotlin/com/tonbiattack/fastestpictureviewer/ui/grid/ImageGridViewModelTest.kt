@@ -30,6 +30,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -51,14 +52,22 @@ class ImageGridViewModelTest {
         override fun observeFolderSummaries(): Flow<List<FolderSummaryRow>> = MutableStateFlow(emptyList())
         override fun observeRepresentatives(): Flow<List<RepresentativeImageRow>> = MutableStateFlow(emptyList())
         override fun observeImages(folderKey: String): Flow<List<ImageItem>> = MutableStateFlow(images)
-        override fun observeFavorites(): Flow<List<FavoriteImageEntity>> = MutableStateFlow(emptyList())
+        private val favoritesFlow = MutableStateFlow<List<FavoriteImageEntity>>(emptyList())
+        override fun observeFavorites(): Flow<List<FavoriteImageEntity>> = favoritesFlow
         override fun observeExcludedFolders(): Flow<List<ExcludedFolderEntity>> = MutableStateFlow(emptyList())
         override fun observeFavoriteFolders(): Flow<List<FavoriteFolderEntity>> = MutableStateFlow(emptyList())
         override fun observeFavoriteImages(folderKey: String?): Flow<List<ImageItem>> = MutableStateFlow(emptyList())
         override fun observeRecentFolders(): Flow<List<RecentFolderEntity>> = MutableStateFlow(emptyList())
         override suspend fun sync(mode: SyncMode, canDelete: Boolean): SyncResult =
             SyncResult(0, 0, 0, emptyList())
-        override suspend fun setFavorite(itemId: String, favorite: Boolean) = Unit
+        override suspend fun setFavorite(itemId: String, favorite: Boolean) {
+            favoritesFlow.value = if (favorite) {
+                favoritesFlow.value.filterNot { it.itemId == itemId } +
+                    FavoriteImageEntity(itemId = itemId, addedAtSec = 1L)
+            } else {
+                favoritesFlow.value.filterNot { it.itemId == itemId }
+            }
+        }
         override suspend fun excludeFolder(volumeName: String, relativePath: String) = Unit
         override suspend fun includeFolder(folderKey: String) = Unit
         override suspend fun setFolderFavorite(
@@ -136,6 +145,55 @@ class ImageGridViewModelTest {
         advanceUntilIdle()
         assertEquals(6, vm.uiState.value.columnCount)
         assertEquals(6, settings.columnCount.value)
+    }
+
+    @Test
+    fun `ファイル名検索で現在のフォルダ内だけを絞り込める`() = runTest {
+        val vm = viewModel()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.onSearchQueryChange("3")
+        advanceUntilIdle()
+        val filtered = vm.uiState.value
+        assertEquals(listOf("id3"), filtered.images.map { it.id })
+        assertEquals(5, filtered.allImages.size)
+        assertTrue(filtered.isFiltered)
+
+        vm.clearSearch()
+        advanceUntilIdle()
+        assertEquals(5, vm.uiState.value.images.size)
+        assertTrue(!vm.uiState.value.isFiltered)
+    }
+
+    @Test
+    fun `お気に入りのみ表示で絞り込める`() = runTest {
+        val vm = viewModel()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.toggleFavorite("id1", currentFavorite = false)
+        advanceUntilIdle()
+        vm.toggleFavoritesOnly()
+        advanceUntilIdle()
+        assertEquals(listOf("id1"), vm.uiState.value.images.map { it.id })
+
+        vm.toggleFavoritesOnly()
+        advanceUntilIdle()
+        assertEquals(5, vm.uiState.value.images.size)
+    }
+
+    @Test
+    fun `フィルタ中の詳細復帰ではスクロール先を設定しない`() = runTest {
+        val vm = viewModel()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.onSearchQueryChange("1")
+        advanceUntilIdle()
+        vm.onReturnedFromViewer("id0", fallbackIndex = 0)
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.scrollTarget)
     }
 
     @Test

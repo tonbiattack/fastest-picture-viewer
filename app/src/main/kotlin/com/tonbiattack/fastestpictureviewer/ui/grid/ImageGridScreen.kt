@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -20,8 +21,12 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,6 +37,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -51,8 +57,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -85,6 +93,7 @@ fun ImageGridScreen(
     var showFullFolderName by remember { mutableStateOf(false) }
     var showDisplaySettings by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var searchActive by remember { mutableStateOf(state.isSearching) }
     val scrollAnchor = remember { GridScrollAnchor() }
 
     if (showFullFolderName) {
@@ -109,47 +118,79 @@ fun ImageGridScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopAppBar(
-                title = {
-                    // 長いフォルダ名でもヘッダーの高さが増えないよう1行固定にする
-                    Text(
-                        text = state.folderName.ifBlank { "読み込み中…" },
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable(
-                            enabled = state.folderName.isNotBlank()
-                        ) { showFullFolderName = true }
-                    )
-                },
-                actions = {
-                    if (state.isSyncing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier
-                                .padding(end = 8.dp)
-                                .size(20.dp),
-                            strokeWidth = 2.dp
+            Column {
+                TopAppBar(
+                    title = {
+                        // 長いフォルダ名でもヘッダーの高さが増えないよう1行固定にする
+                        Text(
+                            text = state.folderName.ifBlank { "読み込み中…" },
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.clickable(
+                                enabled = state.folderName.isNotBlank()
+                            ) { showFullFolderName = true }
                         )
-                    }
-                    Box {
-                        IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Filled.MoreVert, contentDescription = "メニュー")
-                        }
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                if (searchActive || state.isSearching) {
+                                    searchActive = false
+                                    viewModel.clearSearch()
+                                } else {
+                                    searchActive = true
+                                }
+                            }
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("表示設定") },
-                                onClick = {
-                                    menuExpanded = false
-                                    showDisplaySettings = true
+                            Icon(Icons.Filled.Search, contentDescription = "画像を検索")
+                        }
+                        IconButton(onClick = viewModel::toggleFavoritesOnly) {
+                            Icon(
+                                Icons.Filled.Star,
+                                contentDescription = "お気に入りのみ表示",
+                                tint = if (state.favoritesOnly) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
                                 }
                             )
                         }
+                        if (state.isSyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .padding(end = 8.dp)
+                                    .size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                        }
+                        Box {
+                            IconButton(onClick = { menuExpanded = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "メニュー")
+                            }
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("表示設定") },
+                                    onClick = {
+                                        menuExpanded = false
+                                        showDisplaySettings = true
+                                    }
+                                )
+                            }
+                        }
                     }
+                )
+                if (searchActive || state.isSearching) {
+                    ImageSearchField(
+                        query = state.searchQuery,
+                        onQueryChange = viewModel::onSearchQueryChange,
+                        onClear = viewModel::clearSearch
+                    )
                 }
-            )
+            }
         }
     ) { padding ->
         Box(
@@ -158,14 +199,14 @@ fun ImageGridScreen(
                 .padding(padding)
         ) {
             when {
-                state.images.isEmpty() && state.isSyncing -> {
+                state.allImages.isEmpty() && state.isSyncing -> {
                     CircularProgressIndicator(
                         modifier = Modifier
                             .align(Alignment.Center)
                             .size(40.dp)
                     )
                 }
-                state.images.isEmpty() -> {
+                state.allImages.isEmpty() -> {
                     Text(
                         "画像がありません",
                         modifier = Modifier.align(Alignment.Center)
@@ -178,20 +219,42 @@ fun ImageGridScreen(
                             .size(40.dp)
                     )
                 }
+                state.images.isEmpty() -> {
+                    Text(
+                        text = if (state.isFiltered) {
+                            "一致する画像がありません"
+                        } else {
+                            "画像がありません"
+                        },
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
                 else -> {
-                    val target = state.scrollTarget
+                    val target = if (state.isFiltered) null else state.scrollTarget
                     // 列数変更時は、変更前に見えていた画像をアンカーにして再生成する
-                    val anchorIndex = scrollAnchor.itemId
-                        ?.let { id -> state.images.indexOfFirst { it.id == id } }
-                        ?.takeIf { it >= 0 }
-                    val initialIndex = target?.let {
-                        ScrollPositionResolver.resolve(
-                            images = state.images,
-                            anchorItemId = it.itemId,
-                            fallbackIndex = it.fallbackIndex
-                        )
-                    } ?: anchorIndex ?: state.initialIndex
-                    val initialOffset = if (target != null) 0 else scrollAnchor.offsetPx
+                    val anchorIndex = if (state.isFiltered) {
+                        null
+                    } else {
+                        scrollAnchor.itemId
+                            ?.let { id -> state.images.indexOfFirst { it.id == id } }
+                            ?.takeIf { it >= 0 }
+                    }
+                    val initialIndex = if (state.isFiltered) {
+                        0
+                    } else {
+                        target?.let {
+                            ScrollPositionResolver.resolve(
+                                images = state.images,
+                                anchorItemId = it.itemId,
+                                fallbackIndex = it.fallbackIndex
+                            )
+                        } ?: anchorIndex ?: state.initialIndex
+                    }
+                    val initialOffset = when {
+                        state.isFiltered -> 0
+                        target != null -> 0
+                        else -> scrollAnchor.offsetPx
+                    }
                     val cellSizePx = (containerSize.width / state.columnCount).takeIf { it > 0 }
                     val starMetrics = remember(state.columnCount) {
                         ImageGridStarMetrics.forColumns(state.columnCount)
@@ -199,7 +262,7 @@ fun ImageGridScreen(
 
                     // 列数変更・詳細からの復帰時は、保存位置ジャンプのちらつきを避けるため
                     // グリッドState自体を復元先インデックスで作り直す
-                    key(state.columnCount, state.returnRequestId) {
+                    key(state.columnCount, state.returnRequestId, state.isFiltered) {
                         val gridState = rememberLazyGridState(
                             initialFirstVisibleItemIndex = initialIndex,
                             initialFirstVisibleItemScrollOffset = initialOffset
@@ -211,15 +274,26 @@ fun ImageGridScreen(
                             }
                                 .distinctUntilChanged()
                                 .collect { (first, offset) ->
-                                    val last = gridState.layoutInfo.visibleItemsInfo
-                                        .lastOrNull()?.index ?: first
-                                    scrollAnchor.itemId = state.images.getOrNull(first)?.id
-                                    scrollAnchor.offsetPx = offset
-                                    viewModel.onVisibleRangeChanged(first, last, offset)
+                                    if (!state.isFiltered) {
+                                        val last = gridState.layoutInfo.visibleItemsInfo
+                                            .lastOrNull()?.index ?: first
+                                        scrollAnchor.itemId =
+                                            state.images.getOrNull(first)?.id
+                                        scrollAnchor.offsetPx = offset
+                                        viewModel.onVisibleRangeChanged(first, last, offset)
+                                    }
                                 }
                         }
+                        // 検索・お気に入り絞り込みを変えたら結果の先頭から表示する
+                        LaunchedEffect(state.searchQuery, state.favoritesOnly) {
+                            if (state.isFiltered) gridState.scrollToItem(0)
+                        }
                         LaunchedEffect(state.scrollTarget) {
-                            state.scrollTarget?.let { viewModel.consumeScrollTarget(it.requestId) }
+                            if (!state.isFiltered) {
+                                state.scrollTarget?.let {
+                                    viewModel.consumeScrollTarget(it.requestId)
+                                }
+                            }
                         }
                         DisposableEffect(gridState) {
                             onDispose { viewModel.flushScrollPosition() }
@@ -318,6 +392,34 @@ fun ImageGridScreen(
             }
         }
     }
+}
+
+@Composable
+private fun ImageSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClear: () -> Unit
+) {
+    val focusManager = LocalFocusManager.current
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        placeholder = { Text("ファイル名で検索") },
+        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = onClear) {
+                    Icon(Icons.Filled.Close, contentDescription = "検索をクリア")
+                }
+            }
+        },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
+    )
 }
 
 @Composable

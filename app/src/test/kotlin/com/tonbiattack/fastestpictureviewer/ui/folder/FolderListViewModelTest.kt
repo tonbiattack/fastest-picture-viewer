@@ -7,6 +7,8 @@ import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderListScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
+import com.tonbiattack.fastestpictureviewer.data.LastViewedFolder
+import com.tonbiattack.fastestpictureviewer.data.LastViewedStore
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
@@ -30,6 +32,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -61,6 +64,22 @@ class FolderListViewModelTest {
 
         override fun setSortMode(mode: FolderSortMode) {
             _sortMode.value = mode
+        }
+    }
+
+    /** テスト用の「前回の続き」ストア */
+    private class FakeLastViewedStore(
+        initial: LastViewedFolder? = null
+    ) : LastViewedStore {
+        private val _lastViewed = MutableStateFlow(initial)
+        override val lastViewed: StateFlow<LastViewedFolder?> = _lastViewed
+
+        override fun save(folderKey: String, itemId: String, itemIndex: Int) {
+            _lastViewed.value = LastViewedFolder(folderKey, itemId, itemIndex, 1L)
+        }
+
+        override fun clear() {
+            _lastViewed.value = null
         }
     }
 
@@ -173,7 +192,7 @@ class FolderListViewModelTest {
     @Test
     fun `同期開始中でも既存の一覧はクリアされない`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
         // StateFlow は購読されないと開始しないため、背景で購読する
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
@@ -201,7 +220,7 @@ class FolderListViewModelTest {
     @Test
     fun `キャッシュが全く無い初回スキャン中は進捗表示になる`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         repo.statusFlow.value = SyncStatus(isRunning = true, isInitialScan = true)
@@ -213,7 +232,7 @@ class FolderListViewModelTest {
     @Test
     fun `同期失敗メッセージは一覧とは別に保持される`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val key = FolderKeys.create("v", "Pictures/a/")
@@ -234,7 +253,7 @@ class FolderListViewModelTest {
     @Test
     fun `同期後の並び替えがUI状態に反映される`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val a = summary(FolderKeys.create("v", "Pictures/A/"), modifiedSec = 100L)
@@ -258,7 +277,7 @@ class FolderListViewModelTest {
     @Test
     fun `検索は大文字小文字を区別せず部分一致で絞り込む`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val chatGpt = summary(FolderKeys.create("v", "Pictures/ChatGPT/"))
@@ -282,7 +301,7 @@ class FolderListViewModelTest {
     @Test
     fun `日本語フォルダ名でも部分一致検索できる`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val trip = summary(FolderKeys.create("v", "Pictures/旅行写真/"))
@@ -298,7 +317,7 @@ class FolderListViewModelTest {
     @Test
     fun `お気に入りのみ表示で絞り込める`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val favoriteKey = FolderKeys.create("v", "Pictures/Favorite/")
@@ -325,7 +344,7 @@ class FolderListViewModelTest {
     @Test
     fun `検索とお気に入りフィルタを併用できる`() = runTest {
         val repo = FakeRepository()
-        val vm = FolderListViewModel(repo, FakeViewSettings())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val favoriteA = FolderKeys.create("v", "Pictures/TravelA/")
@@ -347,7 +366,7 @@ class FolderListViewModelTest {
     @Test
     fun `列数を変更すると設定とUI状態に即時反映される`() = runTest {
         val settings = FakeViewSettings(initial = 3)
-        val vm = FolderListViewModel(FakeRepository(), settings)
+        val vm = FolderListViewModel(FakeRepository(), settings, FakeLastViewedStore())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
         advanceUntilIdle()
         assertEquals(3, vm.uiState.value.columnCount)
@@ -367,7 +386,7 @@ class FolderListViewModelTest {
     fun `最近閲覧順は閲覧済みを先頭にし未閲覧は更新日時順にする`() = runTest {
         val repo = FakeRepository()
         val settings = FakeViewSettings()
-        val vm = FolderListViewModel(repo, settings)
+        val vm = FolderListViewModel(repo, settings, FakeLastViewedStore())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         val a = summary(FolderKeys.create("v", "Pictures/A/"), modifiedSec = 100L)
@@ -412,7 +431,7 @@ class FolderListViewModelTest {
             anchorOffsetPx = 48,
             updatedAtSec = 1L
         )
-        val vm = FolderListViewModel(repo, FakeViewSettings())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
         advanceUntilIdle()
 
@@ -430,7 +449,7 @@ class FolderListViewModelTest {
         val b = summary(FolderKeys.create("v", "Pictures/B/"), modifiedSec = 200L)
         val c = summary(FolderKeys.create("v", "Pictures/C/"), modifiedSec = 100L)
         repo.foldersFlow.value = listOf(a, b, c)
-        val vm = FolderListViewModel(repo, FakeViewSettings())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
         advanceUntilIdle()
 
@@ -452,7 +471,7 @@ class FolderListViewModelTest {
         repo.favoriteFoldersFlow.value = listOf(
             FavoriteFolderEntity(a.folderKey, "v", "Pictures/A/", 1L)
         )
-        val vm = FolderListViewModel(repo, FakeViewSettings())
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
         advanceUntilIdle()
 
@@ -499,7 +518,7 @@ class FolderListViewModelTest {
             updatedAtSec = 1L
         )
         val settings = FakeViewSettings()
-        val vm = FolderListViewModel(repo, settings)
+        val vm = FolderListViewModel(repo, settings, FakeLastViewedStore())
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
         advanceUntilIdle()
         assertEquals(1, vm.uiState.value.initialIndex)
@@ -517,5 +536,32 @@ class FolderListViewModelTest {
         assertEquals(1, vm.uiState.value.initialIndex)
         assertEquals(12, vm.uiState.value.initialOffset)
         assertEquals(b.folderKey, repo.folderListScroll[FolderSortMode.LATEST]?.anchorFolderKey)
+    }
+
+    @Test
+    fun `前回の続きを状態に反映しクリアできる`() = runTest {
+        val repo = FakeRepository()
+        val key = FolderKeys.create("v", "Pictures/Resume/")
+        repo.foldersFlow.value = listOf(summary(key))
+        val store = FakeLastViewedStore(
+            LastViewedFolder(
+                folderKey = key,
+                itemId = "content://image/42",
+                itemIndex = 3,
+                updatedAtSec = 1L
+            )
+        )
+        val vm = FolderListViewModel(repo, FakeViewSettings(), store)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(key, vm.uiState.value.resumeFolder?.folderKey)
+        assertEquals("content://image/42", vm.uiState.value.resumeItemId)
+        assertEquals(3, vm.uiState.value.resumeItemIndex)
+
+        vm.clearResume()
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.resumeFolder)
+        assertNull(vm.uiState.value.resumeItemId)
     }
 }
