@@ -34,6 +34,10 @@ import kotlinx.coroutines.launch
 private const val KEY_LAST_VIEWED_ITEM = "lastViewedItemId"
 private const val KEY_LAST_VIEWED_INDEX = "lastViewedIndex"
 
+/** 「前回の続き」からグリッドを開く際の対象画像 */
+private const val KEY_RESUME_ITEM = "resumeItemId"
+private const val KEY_RESUME_INDEX = "resumeIndex"
+
 /** 画面経路 */
 object Routes {
     const val FOLDER_LIST = "folders"
@@ -117,6 +121,16 @@ fun AppNavHost(
                         container.repository.markFolderOpened(folder.folderKey)
                     }
                     navController.navigate(Routes.imageGrid(folder.folderKey))
+                },
+                onOpenResume = { folder, itemId, index ->
+                    scope.launch {
+                        container.repository.markFolderOpened(folder.folderKey)
+                    }
+                    navController.currentBackStackEntry?.savedStateHandle?.apply {
+                        set(KEY_RESUME_ITEM, itemId)
+                        set(KEY_RESUME_INDEX, index)
+                    }
+                    navController.navigate(Routes.imageGrid(folder.folderKey))
                 }
             )
         }
@@ -153,6 +167,16 @@ fun AppNavHost(
             )
         ) {
             val viewModel: ImageGridViewModel = viewModel(factory = factory)
+            val previousEntry = navController.previousBackStackEntry
+            LaunchedEffect(previousEntry) {
+                val resumeItemId = previousEntry?.savedStateHandle
+                    ?.get<String>(KEY_RESUME_ITEM) ?: return@LaunchedEffect
+                val resumeIndex = previousEntry.savedStateHandle
+                    .get<Int>(KEY_RESUME_INDEX) ?: 0
+                viewModel.onReturnedFromViewer(resumeItemId, resumeIndex)
+                previousEntry.savedStateHandle.remove<String>(KEY_RESUME_ITEM)
+                previousEntry.savedStateHandle.remove<Int>(KEY_RESUME_INDEX)
+            }
             val entry = navController.currentBackStackEntry
             val lastViewedFlow = remember(entry) {
                 entry?.savedStateHandle
@@ -191,6 +215,14 @@ fun AppNavHost(
             ImageViewerScreen(
                 viewModel = viewModel,
                 onBack = { itemId, index ->
+                    val viewerEntry = navController.currentBackStackEntry
+                    val folderKey = viewerEntry?.arguments?.getString("folderKey")
+                    val favoritesOnly = viewerEntry?.arguments
+                        ?.getBoolean("favoritesOnly", false) ?: false
+                    if (!favoritesOnly && folderKey != null && itemId != null) {
+                        // 起動時の「前回の続き」用に最後のフォルダ・画像を1件保存する
+                        container.lastViewedStore.save(folderKey, itemId, index)
+                    }
                     // 呼び出し元 (通常は画像グリッド) に最後の閲覧位置を返す
                     navController.previousBackStackEntry?.savedStateHandle?.apply {
                         if (itemId != null) {

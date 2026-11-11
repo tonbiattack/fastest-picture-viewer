@@ -8,7 +8,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
+import com.tonbiattack.fastestpictureviewer.data.LastViewedStore
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
+import com.tonbiattack.fastestpictureviewer.data.SharedPreferencesLastViewedStore
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepositoryImpl
 import com.tonbiattack.fastestpictureviewer.ui.favorites.FavoriteImagesViewModel
@@ -47,6 +49,9 @@ class AppContainer(
     /** フォルダ内画像グリッドの列数設定 */
     val imageGridViewSettings: ImageGridViewSettings = SharedPreferencesImageGridViewSettings(context)
 
+    /** 起動時の「前回の続き」用の最後の閲覧位置 */
+    val lastViewedStore: LastViewedStore = SharedPreferencesLastViewedStore(context)
+
     /**
      * サムネイルのメモリ・ディスクキャッシュを削除する。
      * Room のメタ情報は消さないため、次回表示時に再生成されるだけ。
@@ -64,7 +69,7 @@ class AppContainer(
             val savedStateHandle = with(extras) { createSavedStateHandle() }
             return when {
                 modelClass.isAssignableFrom(FolderListViewModel::class.java) ->
-                    FolderListViewModel(repository, folderViewSettings)
+                    FolderListViewModel(repository, folderViewSettings, lastViewedStore)
                 modelClass.isAssignableFrom(ExcludedFoldersViewModel::class.java) ->
                     ExcludedFoldersViewModel(repository)
                 modelClass.isAssignableFrom(FavoriteImagesViewModel::class.java) ->

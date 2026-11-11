@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -57,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -99,6 +101,7 @@ fun FolderListScreen(
     onExcludeFolder: (FolderUiModel) -> Unit,
     onSetFolderFavorite: (FolderUiModel, Boolean) -> Unit,
     onOpenFolder: (FolderUiModel) -> Unit,
+    onOpenResume: (FolderUiModel, String, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
@@ -276,21 +279,40 @@ fun FolderListScreen(
                     hasFolders = state.hasFolders
                 )
 
-                else -> key(state.sortMode, state.isFiltered) {
-                    FolderGrid(
-                        folders = state.folders,
-                        columnCount = state.columnCount,
-                        initialIndex = state.initialIndex,
-                        initialOffset = state.initialOffset,
-                        onScrollPositionChanged = viewModel::onScrollPositionChanged,
-                        onFlushScrollPosition = viewModel::flushScrollPosition,
-                        onFavoriteToggle = { folder ->
-                            onSetFolderFavorite(folder, !folder.isFavorite)
-                        },
-                        onExcludeRequest = { pendingExclude = it },
-                        onOpenFolder = onOpenFolder,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                else -> Column(modifier = Modifier.fillMaxSize()) {
+                    val resumeFolder = state.resumeFolder
+                    val resumeItemId = state.resumeItemId
+                    if (!state.isFiltered && resumeFolder != null && resumeItemId != null) {
+                        ResumeFolderCard(
+                            folder = resumeFolder,
+                            onOpen = {
+                                onOpenResume(
+                                    resumeFolder,
+                                    resumeItemId,
+                                    state.resumeItemIndex
+                                )
+                            },
+                            onClear = viewModel::clearResume
+                        )
+                    }
+                    key(state.sortMode, state.isFiltered) {
+                        FolderGrid(
+                            folders = state.folders,
+                            columnCount = state.columnCount,
+                            initialIndex = state.initialIndex,
+                            initialOffset = state.initialOffset,
+                            onScrollPositionChanged = viewModel::onScrollPositionChanged,
+                            onFlushScrollPosition = viewModel::flushScrollPosition,
+                            onFavoriteToggle = { folder ->
+                                onSetFolderFavorite(folder, !folder.isFavorite)
+                            },
+                            onExcludeRequest = { pendingExclude = it },
+                            onOpenFolder = onOpenFolder,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        )
+                    }
                 }
             }
 
@@ -449,6 +471,70 @@ private fun FolderGrid(
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
         )
+    }
+}
+
+@Composable
+private fun ResumeFolderCard(
+    folder: FolderUiModel,
+    onOpen: () -> Unit,
+    onClear: () -> Unit
+) {
+    val context = LocalContext.current
+    val request = remember(folder.representativeImageUri, folder.latestModifiedSec) {
+        folder.representativeImageUri?.let {
+            folderThumbnailRequest(context, it, folder.latestModifiedSec)
+        }
+    }
+    ElevatedCard(
+        onClick = onOpen,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                AsyncImage(
+                    model = request,
+                    contentDescription = folder.folderName,
+                    contentScale = ContentScale.Crop,
+                    error = painterResource(R.drawable.ic_broken_image),
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "前回の続き",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = folder.folderName,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "${folder.imageCount} 枚",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = onClear) {
+                Icon(Icons.Filled.Close, contentDescription = "前回の続きをクリア")
+            }
+        }
     }
 }
 

@@ -6,6 +6,8 @@ import com.tonbiattack.fastestpictureviewer.core.util.FolderNames
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
+import com.tonbiattack.fastestpictureviewer.data.LastViewedFolder
+import com.tonbiattack.fastestpictureviewer.data.LastViewedStore
 import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
@@ -69,6 +71,15 @@ data class FolderListUiState(
     /** フィルタなしの並び順のフォルダキー (スクロール保存用) */
     val allFolderKeys: List<String> = emptyList(),
 
+    /** 起動時の「前回の続き」に表示するフォルダ */
+    val resumeFolder: FolderUiModel? = null,
+
+    /** 前回見ていた画像 ID */
+    val resumeItemId: String? = null,
+
+    /** 前回見ていた画像のインデックス */
+    val resumeItemIndex: Int = 0,
+
     /** 背景同期中かどうか */
     val isSyncing: Boolean = false,
 
@@ -113,7 +124,8 @@ private data class ScrollRestore(
 /** UI 合成用のフィルタ + 復元情報 */
 private data class UiContext(
     val filter: FolderFilter,
-    val restore: ScrollRestore
+    val restore: ScrollRestore,
+    val resume: LastViewedFolder?
 ) {
     val isFiltered: Boolean get() = filter.query.isNotBlank() || filter.favoritesOnly
 }
@@ -128,7 +140,8 @@ private data class UiContext(
  */
 class FolderListViewModel(
     private val repository: GalleryRepository,
-    private val viewSettings: FolderViewSettings
+    private val viewSettings: FolderViewSettings,
+    private val lastViewedStore: LastViewedStore
 ) : ViewModel() {
 
     /** 一覧の初回表示までの時間計測用 (JVM 単体テストでも動くよう System.nanoTime を使う) */
@@ -193,8 +206,12 @@ class FolderListViewModel(
                     repository.syncStatus,
                     viewSettings.columnCount,
                     viewSettings.sortMode,
-                    combine(filterFlow, scrollRestore) { filter, restore ->
-                        UiContext(filter = filter, restore = restore)
+                    combine(
+                        filterFlow,
+                        scrollRestore,
+                        lastViewedStore.lastViewed
+                    ) { filter, restore, resume ->
+                        UiContext(filter = filter, restore = restore, resume = resume)
                     }
                 ) { data, status, columns, sortMode, context ->
                     if (!firstFrameLogged && data.summaries.isNotEmpty()) {
@@ -227,6 +244,14 @@ class FolderListViewModel(
                         matchesQuery && matchesFavorite
                     }
 
+                    val resumeFolder = if (context.isFiltered) {
+                        null
+                    } else {
+                        context.resume?.let { resume ->
+                            allFolders.firstOrNull { it.folderKey == resume.folderKey }
+                        }
+                    }
+
                     FolderListUiState(
                         isLoadingFirstFrame = false,
                         folders = visibleFolders,
@@ -247,6 +272,9 @@ class FolderListViewModel(
                         initialOffset = if (context.isFiltered) 0 else context.restore.offsetPx,
                         isScrollRestored = context.restore.loaded,
                         allFolderKeys = sortedFolders.map { it.folderKey },
+                        resumeFolder = resumeFolder,
+                        resumeItemId = context.resume?.itemId,
+                        resumeItemIndex = context.resume?.itemIndex ?: 0,
                         isSyncing = status.isRunning,
                         isInitialScan = status.isInitialScan,
                         errorMessage = status.errorMessage
@@ -301,6 +329,11 @@ class FolderListViewModel(
     /** お気に入りのみ表示を切り替える */
     fun toggleFavoritesOnly() {
         favoritesOnly.value = !favoritesOnly.value
+    }
+
+    /** 「前回の続き」履歴を消す */
+    fun clearResume() {
+        lastViewedStore.clear()
     }
 
     /** 列数を変更して永続化する */

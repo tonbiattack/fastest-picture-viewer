@@ -32,10 +32,16 @@ data class ImageGridUiState(
     val folderKey: String? = null,
     /** フォルダ表示名 */
     val folderName: String = "",
-    /** 画像一覧。同期中でも決して空配列に戻さない */
+    /** フィルタ適用後の画像一覧。同期中でも決して空配列に戻さない */
     val images: List<ImageItem> = emptyList(),
+    /** フィルタ前の全画像一覧 (スクロール保存・復帰解決用) */
+    val allImages: List<ImageItem> = emptyList(),
     /** お気に入り登録済みの画像 ID */
     val favoriteIds: Set<String> = emptySet(),
+    /** ファイル名検索クエリ */
+    val searchQuery: String = "",
+    /** お気に入りのみ表示中か */
+    val favoritesOnly: Boolean = false,
     /** 復元する先頭インデックス */
     val initialIndex: Int = 0,
     /** 復元する先頭アイテムのピクセルオフセット */
@@ -53,6 +59,12 @@ data class ImageGridUiState(
 ) {
     /** ルート引数がまだ届いていない (ナビ引数なしで生成された) 場合のみ true */
     val isWaitingNavArgs: Boolean get() = folderKey == null
+
+    /** ファイル名検索中か */
+    val isSearching: Boolean get() = searchQuery.isNotBlank()
+
+    /** 検索・お気に入りフィルタ中か (この間のスクロール位置は保存しない) */
+    val isFiltered: Boolean get() = isSearching || favoritesOnly
 }
 
 /** スクロール位置の復元情報 */
@@ -63,14 +75,23 @@ private data class ScrollRestore(
     val offsetPx: Int
 )
 
+/** 検索とお気に入りフィルタ */
+private data class GridFilter(
+    val query: String,
+    val favoritesOnly: Boolean
+)
+
 /** UI 合成用のコンテキスト */
 private data class GridUiContext(
     val favoriteOverrides: Map<String, Boolean>,
     val restore: ScrollRestore,
     val columnCount: Int,
     val scrollTarget: ImageGridScrollTarget?,
-    val returnRequestId: Long
-)
+    val returnRequestId: Long,
+    val filter: GridFilter
+) {
+    val isFiltered: Boolean get() = filter.query.isNotBlank() || filter.favoritesOnly
+}
 
 /**
  * フォルダ内画像一覧の ViewModel。
@@ -80,6 +101,7 @@ private data class GridUiContext(
  * - フォルダ別のスクロール位置を Room に保存し、再入場・再起動後も復元する (Issue #21)
  * - 列数 (2〜6) をフォルダ一覧とは独立して永続化する (Issue #34)
  * - 詳細画面で最後に見ていた画像 ID を受け取り、戻り先の位置を解決する (Issue #35)
+ * - お気に入りフィルタ・ファイル名検索を読み込み済みリストに対して行う (Issue #39)
  */
 class ImageGridViewModel(
     private val repository: GalleryRepository,
@@ -96,6 +118,17 @@ class ImageGridViewModel(
     /** DB 反映を待たずに星の状態を即時反映する */
     private val favoriteOverrides = MutableStateFlow<Map<String, Boolean>>(emptyMap())
 
+    private val searchQuery = MutableStateFlow("")
+    private val favoritesOnly = MutableStateFlow(false)
+
+    private val filterFlow = combine(searchQuery, favoritesOnly) { query, favorites ->
+        GridFilter(query = query, favoritesOnly = favorites)
+    }
+
+    private val filterContext = combine(favoriteOverrides, filterFlow) { overrides, filter ->
+        overrides to filter
+    }
+
     private val scrollRestore = MutableStateFlow(
         ScrollRestore(loaded = false, anchorItemId = null, fallbackIndex = 0, offsetPx = 0)
     )
@@ -107,18 +140,20 @@ class ImageGridViewModel(
     private val returnRequest = MutableStateFlow(0L)
 
     private val uiContext = combine(
-        favoriteOverrides,
         scrollRestore,
         viewSettings.columnCount,
         scrollTarget,
-        returnRequest
-    ) { overrides, restore, columns, target, returnId ->
+        returnRequest,
+        filterContext
+    ) { restore, columns, target, returnId, filterPair ->
+        val (overrides, filter) = filterPair
         GridUiContext(
             favoriteOverrides = overrides,
             restore = restore,
             columnCount = columns,
             scrollTarget = target,
-            returnRequestId = returnId
+            returnRequestId = returnId,
+            filter = filter
         )
     }
 
@@ -164,18 +199,36 @@ class ImageGridViewModel(
         context.favoriteOverrides.forEach { (itemId, favorite) ->
             if (favorite) favoriteIds.add(itemId) else favoriteIds.remove(itemId)
         }
+        val visibleImages = if (context.isFiltered) {
+            images.filter { image ->
+                val matchesQuery = context.filter.query.isBlank() ||
+                    image.displayName.contains(context.filter.query, ignoreCase = true)
+                val matchesFavorite =
+                    !context.filter.favoritesOnly || image.id in favoriteIds
+                matchesQuery && matchesFavorite
+            }
+        } else {
+            images
+        }
         ImageGridUiState(
             folderKey = folderKey,
             folderName = images.firstOrNull()?.folderName
                 ?: folderKey?.let { FolderNames.fromFolderKey(it) } ?: "",
-            images = images,
+            images = visibleImages,
+            allImages = images,
             favoriteIds = favoriteIds,
-            initialIndex = ScrollPositionResolver.resolve(
-                images = images,
-                anchorItemId = context.restore.anchorItemId,
-                fallbackIndex = context.restore.fallbackIndex
-            ),
-            initialOffset = context.restore.offsetPx,
+            searchQuery = context.filter.query,
+            favoritesOnly = context.filter.favoritesOnly,
+            initialIndex = if (context.isFiltered) {
+                0
+            } else {
+                ScrollPositionResolver.resolve(
+                    images = images,
+                    anchorItemId = context.restore.anchorItemId,
+                    fallbackIndex = context.restore.fallbackIndex
+                )
+            },
+            initialOffset = if (context.isFiltered) 0 else context.restore.offsetPx,
             isScrollRestored = context.restore.loaded,
             columnCount = context.columnCount,
             scrollTarget = context.scrollTarget,
@@ -188,10 +241,27 @@ class ImageGridViewModel(
         initialValue = ImageGridUiState()
     )
 
+    /** ファイル名検索の入力を更新する */
+    fun onSearchQueryChange(query: String) {
+        searchQuery.value = query
+    }
+
+    /** 検索を解除して全件表示に戻す */
+    fun clearSearch() {
+        searchQuery.value = ""
+    }
+
+    /** お気に入りのみ表示を切り替える */
+    fun toggleFavoritesOnly() {
+        favoritesOnly.value = !favoritesOnly.value
+    }
+
     /**
      * 表示中の範囲を受け取る。詳細から戻った画像が既に画面内なら位置を動かさないために使う。
      */
     fun onVisibleRangeChanged(firstIndex: Int, lastIndex: Int, offsetPx: Int) {
+        // フィルタ中の位置は通常一覧の保存位置を上書きしない
+        if (uiState.value.isFiltered) return
         visibleFirstIndex = firstIndex
         visibleLastIndex = lastIndex
         onScrollPositionChanged(firstIndex, offsetPx)
@@ -220,7 +290,9 @@ class ImageGridViewModel(
 
     private suspend fun persistScrollPosition() {
         val key = folderKey ?: return
-        val images = uiState.value.images
+        val state = uiState.value
+        if (state.isFiltered) return
+        val images = state.allImages
         if (images.isEmpty()) return
         val index = latestIndex.coerceIn(0, images.lastIndex)
         repository.saveScrollPosition(
@@ -241,15 +313,18 @@ class ImageGridViewModel(
      * 画像 ID が見つからない場合は [fallbackIndex] を近傍位置として使う。
      */
     fun onReturnedFromViewer(itemId: String?, fallbackIndex: Int) {
-        val images = uiState.value.images
-        if (images.isEmpty()) return
-        val targetIndex = ScrollPositionResolver.resolve(
-            images = images,
-            anchorItemId = itemId,
-            fallbackIndex = fallbackIndex.coerceAtLeast(0)
-        )
-        // 最後に見ていた画像がすでに画面内なら、元のグリッド位置を維持する
-        if (targetIndex in visibleFirstIndex..visibleLastIndex) return
+        val state = uiState.value
+        if (state.isFiltered) return
+        val images = state.allImages
+        if (images.isNotEmpty()) {
+            val targetIndex = ScrollPositionResolver.resolve(
+                images = images,
+                anchorItemId = itemId,
+                fallbackIndex = fallbackIndex.coerceAtLeast(0)
+            )
+            // 最後に見ていた画像がすでに画面内なら、元のグリッド位置を維持する
+            if (targetIndex in visibleFirstIndex..visibleLastIndex) return
+        }
 
         val next = returnRequest.value + 1
         returnRequest.value = next
