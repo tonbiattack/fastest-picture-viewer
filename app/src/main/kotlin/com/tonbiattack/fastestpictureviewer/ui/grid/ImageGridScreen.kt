@@ -2,6 +2,7 @@ package com.tonbiattack.fastestpictureviewer.ui.grid
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,7 +56,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -70,6 +73,7 @@ import com.tonbiattack.fastestpictureviewer.R
 import com.tonbiattack.fastestpictureviewer.core.image.toImageRequest
 import com.tonbiattack.fastestpictureviewer.ui.components.FastScroller
 import kotlinx.coroutines.flow.distinctUntilChanged
+import android.content.res.Configuration
 
 /**
  * フォルダ内の画像をグリッド表示する画面。
@@ -90,11 +94,20 @@ fun ImageGridScreen(
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
     val context = LocalContext.current
     val containerSize = LocalWindowInfo.current.containerSize
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     var showFullFolderName by remember { mutableStateOf(false) }
     var showDisplaySettings by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var searchActive by remember { mutableStateOf(state.isSearching) }
     val scrollAnchor = remember { GridScrollAnchor() }
+    // ピンチ操作中の一時的な列数。null なら保存済みの列数を使う (Issue #45)
+    var pinchColumns by remember { mutableStateOf<Int?>(null) }
+
+    // 画面の向きに応じて、その向きで保存した列数を適用する (Issue #44)
+    LaunchedEffect(isLandscape) {
+        viewModel.onOrientationChanged(isLandscape)
+    }
 
     if (showFullFolderName) {
         AlertDialog(
@@ -110,6 +123,9 @@ fun ImageGridScreen(
     if (showDisplaySettings) {
         ImageGridDisplaySettingsDialog(
             columnCount = state.columnCount,
+            portraitColumnCount = state.portraitColumnCount,
+            landscapeColumnCount = state.landscapeColumnCount,
+            isLandscape = isLandscape,
             onColumnCountChange = viewModel::setColumnCount,
             onDismiss = { showDisplaySettings = false }
         )
@@ -255,13 +271,19 @@ fun ImageGridScreen(
                         target != null -> 0
                         else -> scrollAnchor.offsetPx
                     }
+                    // ピンチ中は一時的な列数を使い、離したら保存値へ戻る (Issue #45)
+                    val effectiveColumns = pinchColumns ?: state.columnCount
+                    // ピンチ中に列数が細かく変わってもデコードサイズを作り直さないよう、
+                    // サムネイルのデコードサイズは保存済みの列数を基準にする (メモリ・IO 保護)
                     val cellSizePx = (containerSize.width / state.columnCount).takeIf { it > 0 }
-                    val starMetrics = remember(state.columnCount) {
-                        ImageGridStarMetrics.forColumns(state.columnCount)
+                    val starMetrics = remember(effectiveColumns) {
+                        ImageGridStarMetrics.forColumns(effectiveColumns)
                     }
 
                     // 列数変更・詳細からの復帰時は、保存位置ジャンプのちらつきを避けるため
-                    // グリッドState自体を復元先インデックスで作り直す
+                    // グリッドState自体を復元先インデックスで作り直す。
+                    // ピンチ中の一時列数は key に含めない (ジェスチャー中に State を作り直さない)。
+                    // LazyGrid はアイテムキーを基準に列数変更後も先頭の画像を維持する。
                     key(state.columnCount, state.returnRequestId, state.isFiltered) {
                         val gridState = rememberLazyGridState(
                             initialFirstVisibleItemIndex = initialIndex,
@@ -298,9 +320,18 @@ fun ImageGridScreen(
                         DisposableEffect(gridState) {
                             onDispose { viewModel.flushScrollPosition() }
                         }
-                        Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                // 2本指のピンチで一時的に列数を変える (Issue #45)。
+                                // グリッドの外側で検出し、列数の変化で再構成されても途切れないようにする
+                                .pinchToColumns(
+                                    baseColumns = state.columnCount,
+                                    onPreviewChange = { columns -> pinchColumns = columns }
+                                )
+                        ) {
                             LazyVerticalGrid(
-                                columns = GridCells.Fixed(state.columnCount),
+                                columns = GridCells.Fixed(effectiveColumns),
                                 state = gridState,
                                 // 右端の FastScroller と重ならないよう終端に余白を確保する
                                 contentPadding = PaddingValues(end = 20.dp),
@@ -425,6 +456,9 @@ private fun ImageSearchField(
 @Composable
 private fun ImageGridDisplaySettingsDialog(
     columnCount: Int,
+    portraitColumnCount: Int,
+    landscapeColumnCount: Int,
+    isLandscape: Boolean,
     onColumnCountChange: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -433,7 +467,10 @@ private fun ImageGridDisplaySettingsDialog(
         title = { Text("表示設定") },
         text = {
             Column {
-                Text("画像一覧の列数", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = if (isLandscape) "画像一覧の列数 (横向き)" else "画像一覧の列数 (縦向き)",
+                    style = MaterialTheme.typography.bodyMedium
+                )
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for (count in 2..4) {
@@ -456,7 +493,20 @@ private fun ImageGridDisplaySettingsDialog(
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "2〜6列から選択できます。フォルダ一覧の列数設定とは別に保存されます。",
+                    "2〜6列から選択できます。フォルダ一覧の列数設定とは別に、" +
+                        "縦向き・横向きそれぞれで保存されます。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "現在の設定: 縦 $portraitColumnCount 列 / 横 $landscapeColumnCount 列",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "写真一覧では2本指のピンチでも一時的に列数を変えられます (指を離すと元に戻ります)。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

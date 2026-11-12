@@ -6,10 +6,12 @@ import com.tonbiattack.fastestpictureviewer.core.util.FolderNames
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
+import com.tonbiattack.fastestpictureviewer.data.FolderTagNameRow
 import com.tonbiattack.fastestpictureviewer.data.LastViewedFolder
 import com.tonbiattack.fastestpictureviewer.data.LastViewedStore
 import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
+import com.tonbiattack.fastestpictureviewer.data.TagWithCount
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -24,6 +26,29 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+/** フォルダに付いたタグ 1 件分 (バッジ表示用) */
+data class FolderTagUi(
+    val tagId: Long,
+    val displayName: String
+)
+
+/** タグの絞り込み条件。複数タグ指定時の AND/OR は UI で明示する (Issue #46) */
+data class TagFilterState(
+    val tagIds: Set<Long> = emptySet(),
+    val mode: TagFilterMode = TagFilterMode.OR
+) {
+    val isActive: Boolean get() = tagIds.isNotEmpty()
+}
+
+/** 複数タグを指定したときの絞り込み方法 */
+enum class TagFilterMode {
+    /** いずれかのタグが付いたフォルダを表示する */
+    OR,
+
+    /** 指定したすべてのタグが付いたフォルダだけを表示する */
+    AND
+}
+
 /** フォルダ一覧の 1 セル分 */
 data class FolderUiModel(
     val folderKey: String,
@@ -33,7 +58,9 @@ data class FolderUiModel(
     val imageCount: Long,
     val latestModifiedSec: Long,
     val representativeImageUri: String?,
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    /** 付与済みのタグ (表示用) */
+    val tags: List<FolderTagUi> = emptyList()
 )
 
 /** フォルダ一覧画面の状態 */
@@ -87,7 +114,13 @@ data class FolderListUiState(
     val isInitialScan: Boolean = false,
 
     /** 同期失敗のメッセージ */
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+
+    /** タグの絞り込み条件 (Issue #46) */
+    val tagFilter: TagFilterState = TagFilterState(),
+
+    /** 選択可能なタグ一覧 (付与件数付き) */
+    val allTags: List<TagWithCount> = emptyList()
 ) {
     /** 同期中でまだ 1 件も無い場合に初回スキャン表示を出す */
     val showInitialScanProgress: Boolean get() = isSyncing && !hasFolders
@@ -95,8 +128,8 @@ data class FolderListUiState(
     /** 検索中か */
     val isSearching: Boolean get() = searchQuery.isNotBlank()
 
-    /** 検索・お気に入りフィルタ中か (この間のスクロール位置は保存しない) */
-    val isFiltered: Boolean get() = isSearching || favoritesOnly
+    /** 検索・お気に入り・タグフィルタ中か (この間のスクロール位置は保存しない) */
+    val isFiltered: Boolean get() = isSearching || favoritesOnly || tagFilter.isActive
 }
 
 /** 内部で扱うフォルダ・代表画像・お気に入りの組み合わせ */
@@ -104,14 +137,19 @@ private data class FolderDataSource(
     val summaries: List<FolderSummaryRow>,
     val representatives: List<RepresentativeImageRow>,
     val favoriteKeys: Set<String>,
-    val recentOpened: Map<String, Long>
+    val recentOpened: Map<String, Long>,
+    val tagsByFolder: Map<String, List<FolderTagUi>>
 )
 
-/** 検索とお気に入りフィルタ */
+/** 検索とお気に入り・タグフィルタ */
 private data class FolderFilter(
     val query: String,
-    val favoritesOnly: Boolean
-)
+    val favoritesOnly: Boolean,
+    val tagFilter: TagFilterState
+) {
+    val isFiltered: Boolean
+        get() = query.isNotBlank() || favoritesOnly || tagFilter.isActive
+}
 
 /** スクロール位置の復元情報 */
 private data class ScrollRestore(
@@ -127,7 +165,7 @@ private data class UiContext(
     val restore: ScrollRestore,
     val resume: LastViewedFolder?
 ) {
-    val isFiltered: Boolean get() = filter.query.isNotBlank() || filter.favoritesOnly
+    val isFiltered: Boolean get() = filter.isFiltered
 }
 
 /**
@@ -150,9 +188,14 @@ class FolderListViewModel(
 
     private val searchQuery = MutableStateFlow("")
     private val favoritesOnly = MutableStateFlow(false)
+    private val tagFilter = MutableStateFlow(TagFilterState())
 
-    private val filterFlow = combine(searchQuery, favoritesOnly) { query, favorites ->
-        FolderFilter(query = query, favoritesOnly = favorites)
+    private val filterFlow = combine(
+        searchQuery,
+        favoritesOnly,
+        tagFilter
+    ) { query, favorites, tags ->
+        FolderFilter(query = query, favoritesOnly = favorites, tagFilter = tags)
     }
 
     private val dataSource = combine(
@@ -160,15 +203,23 @@ class FolderListViewModel(
         // 代表サムネイル・お気に入りの到着を待たず、フォルダ一覧を先に表示する
         repository.observeRepresentatives().onStart { emit(emptyList()) },
         repository.observeFavoriteFolders().onStart { emit(emptyList()) },
-        repository.observeRecentFolders().onStart { emit(emptyList()) }
-    ) { summaries, representatives: List<RepresentativeImageRow>, favorites: List<FavoriteFolderEntity>, recent: List<RecentFolderEntity> ->
+        repository.observeRecentFolders().onStart { emit(emptyList()) },
+        repository.observeFolderTagNames().onStart { emit(emptyList()) }
+    ) { summaries, representatives: List<RepresentativeImageRow>, favorites: List<FavoriteFolderEntity>, recent: List<RecentFolderEntity>, tagRows: List<FolderTagNameRow> ->
         FolderDataSource(
             summaries = summaries,
             representatives = representatives,
             favoriteKeys = favorites.mapTo(hashSetOf()) { it.folderKey },
-            recentOpened = recent.associate { it.folderKey to it.openedAtSec }
+            recentOpened = recent.associate { it.folderKey to it.openedAtSec },
+            tagsByFolder = tagRows.groupBy(
+                keySelector = { it.folderKey },
+                valueTransform = { FolderTagUi(tagId = it.tagId, displayName = it.displayName) }
+            )
         )
     }
+
+    /** 選択可能なタグ一覧。付与件数はバッジ表示のみに使い、絞り込みには使わない */
+    private val tagsFlow = repository.observeTagsWithCount().onStart { emit(emptyList()) }
 
     private val scrollRestore = MutableStateFlow(
         ScrollRestore(loaded = false, anchorFolderKey = null, fallbackIndex = 0, offsetPx = 0)
@@ -209,11 +260,13 @@ class FolderListViewModel(
                     combine(
                         filterFlow,
                         scrollRestore,
-                        lastViewedStore.lastViewed
-                    ) { filter, restore, resume ->
-                        UiContext(filter = filter, restore = restore, resume = resume)
+                        lastViewedStore.lastViewed,
+                        tagsFlow
+                    ) { filter, restore, resume, allTags ->
+                        UiContext(filter = filter, restore = restore, resume = resume) to allTags
                     }
-                ) { data, status, columns, sortMode, context ->
+                ) { data, status, columns, sortMode, contextAndTags ->
+                    val (context, allTags) = contextAndTags
                     if (!firstFrameLogged && data.summaries.isNotEmpty()) {
                         firstFrameLogged = true
                         val elapsedMs = (System.nanoTime() - startedAtNanos) / 1_000_000
@@ -222,7 +275,8 @@ class FolderListViewModel(
 
                     val allFolders = data.summaries.toUiModels(
                         representatives = data.representatives,
-                        favoriteKeys = data.favoriteKeys
+                        favoriteKeys = data.favoriteKeys,
+                        tagsByFolder = data.tagsByFolder
                     )
                     val sortedFolders = when (sortMode) {
                         FolderSortMode.LATEST -> allFolders
@@ -241,7 +295,8 @@ class FolderListViewModel(
                             folder.folderName.contains(context.filter.query, ignoreCase = true)
                         val matchesFavorite =
                             !context.filter.favoritesOnly || folder.isFavorite
-                        matchesQuery && matchesFavorite
+                        val matchesTag = matchesTagFilter(folder, context.filter.tagFilter)
+                        matchesQuery && matchesFavorite && matchesTag
                     }
 
                     val resumeFolder = if (context.isFiltered) {
@@ -277,7 +332,9 @@ class FolderListViewModel(
                         resumeItemIndex = context.resume?.itemIndex ?: 0,
                         isSyncing = status.isRunning,
                         isInitialScan = status.isInitialScan,
-                        errorMessage = status.errorMessage
+                        errorMessage = status.errorMessage,
+                        tagFilter = context.filter.tagFilter,
+                        allTags = allTags
                     )
                 }
             }
@@ -329,6 +386,78 @@ class FolderListViewModel(
     /** お気に入りのみ表示を切り替える */
     fun toggleFavoritesOnly() {
         favoritesOnly.value = !favoritesOnly.value
+    }
+
+    /** タグ絞り込みを追加/解除する */
+    fun toggleTagFilter(tagId: Long) {
+        tagFilter.value = tagFilter.value.let { current ->
+            if (tagId in current.tagIds) {
+                current.copy(tagIds = current.tagIds - tagId)
+            } else {
+                current.copy(tagIds = current.tagIds + tagId)
+            }
+        }
+    }
+
+    /** 複数タグ指定時の AND/OR を切り替える */
+    fun setTagFilterMode(mode: TagFilterMode) {
+        tagFilter.value = tagFilter.value.copy(mode = mode)
+    }
+
+    /** タグ絞り込みをすべて解除する */
+    fun clearTagFilter() {
+        tagFilter.value = TagFilterState()
+    }
+
+    /** フォルダに付与するタグを、指定内容へ置き換える */
+    fun setFolderTags(folderKey: String, tagIds: Set<Long>) {
+        viewModelScope.launch {
+            repository.setFolderTags(folderKey, tagIds)
+        }
+    }
+
+    /** タグ名からタグを作成 (既存なら取得) し、フォルダへ付与する */
+    fun addTagByName(
+        folderKey: String,
+        rawName: String,
+        currentTagIds: Set<Long>,
+        onCreated: (Long) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val tag = repository.findOrCreateTag(rawName) ?: return@launch
+            repository.setFolderTags(folderKey, currentTagIds + tag.tagId)
+            onCreated(tag.tagId)
+        }
+    }
+
+    /** 検索結果の複数フォルダへ、既存タグをまとめて付与する */
+    fun addTagsToFolders(tagIds: Set<Long>, folderKeys: Collection<String>) {
+        viewModelScope.launch {
+            repository.addTagsToFolders(tagIds, folderKeys)
+        }
+    }
+
+    /** 未登録のタグ名から新規作成し、複数フォルダへまとめて付与する */
+    fun addNewTagToFolders(rawName: String, folderKeys: Collection<String>) {
+        if (folderKeys.isEmpty()) return
+        viewModelScope.launch {
+            val tag = repository.findOrCreateTag(rawName) ?: return@launch
+            repository.addTagsToFolders(setOf(tag.tagId), folderKeys)
+        }
+    }
+
+    /** タグ名を変更する */
+    fun renameTag(tagId: Long, rawName: String) {
+        viewModelScope.launch {
+            repository.renameTag(tagId, rawName)
+        }
+    }
+
+    /** タグを削除する (フォルダとの紐付けも消える) */
+    fun deleteTag(tagId: Long) {
+        viewModelScope.launch {
+            repository.deleteTag(tagId)
+        }
     }
 
     /** 「前回の続き」履歴を消す */
@@ -407,7 +536,8 @@ class FolderListViewModel(
 
     private fun List<FolderSummaryRow>.toUiModels(
         representatives: List<RepresentativeImageRow>,
-        favoriteKeys: Set<String>
+        favoriteKeys: Set<String>,
+        tagsByFolder: Map<String, List<FolderTagUi>>
     ): List<FolderUiModel> {
         // フォルダごとに代表サムネイルを最大 1 件割り当てる
         val repByFolder = representatives.associateBy({ it.folderKey }, { it.id })
@@ -420,8 +550,22 @@ class FolderListViewModel(
                 imageCount = row.imageCount,
                 latestModifiedSec = row.latestModifiedSec,
                 representativeImageUri = repByFolder[row.folderKey],
-                isFavorite = row.folderKey in favoriteKeys
+                isFavorite = row.folderKey in favoriteKeys,
+                tags = tagsByFolder[row.folderKey].orEmpty()
             )
+        }
+    }
+
+    /**
+     * タグ絞り込みの判定。複数タグ指定時は UI で明示した AND/OR に従う。
+     * タグ未設定のフォルダは、絞り込み中だけ対象外になる。
+     */
+    private fun matchesTagFilter(folder: FolderUiModel, filter: TagFilterState): Boolean {
+        if (!filter.isActive) return true
+        val folderTagIds = folder.tags.mapTo(hashSetOf()) { it.tagId }
+        return when (filter.mode) {
+            TagFilterMode.OR -> filter.tagIds.any { it in folderTagIds }
+            TagFilterMode.AND -> folderTagIds.containsAll(filter.tagIds)
         }
     }
 

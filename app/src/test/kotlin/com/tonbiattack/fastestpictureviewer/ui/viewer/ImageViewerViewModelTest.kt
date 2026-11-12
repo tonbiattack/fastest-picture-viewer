@@ -8,9 +8,12 @@ import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderListScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
+import com.tonbiattack.fastestpictureviewer.data.FolderTagNameRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
+import com.tonbiattack.fastestpictureviewer.data.TagEntity
+import com.tonbiattack.fastestpictureviewer.data.TagWithCount
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import com.tonbiattack.fastestpictureviewer.repository.SyncMode
 import com.tonbiattack.fastestpictureviewer.repository.SyncResult
@@ -92,6 +95,14 @@ class ImageViewerViewModelTest {
             anchorIndex: Int,
             anchorOffsetPx: Int
         ) = Unit
+        override fun observeTags(): Flow<List<TagEntity>> = MutableStateFlow(emptyList())
+        override fun observeTagsWithCount(): Flow<List<TagWithCount>> = MutableStateFlow(emptyList())
+        override fun observeFolderTagNames(): Flow<List<FolderTagNameRow>> = MutableStateFlow(emptyList())
+        override suspend fun findOrCreateTag(rawName: String): TagEntity? = null
+        override suspend fun setFolderTags(folderKey: String, tagIds: Set<Long>) = Unit
+        override suspend fun addTagsToFolders(tagIds: Set<Long>, folderKeys: Collection<String>) = Unit
+        override suspend fun renameTag(tagId: Long, rawName: String): Boolean = true
+        override suspend fun deleteTag(tagId: Long) = Unit
     }
 
     private fun images(count: Int): List<ImageItem> = (0 until count).map { index ->

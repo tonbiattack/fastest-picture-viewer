@@ -13,6 +13,9 @@
 | [#39](https://github.com/tonbiattack/fastest-picture-viewer/issues/39) | 画像グリッドのお気に入りフィルタ・ファイル名検索 | P1 | 読み込み済みリストをメモリ上で絞る。MediaStore再走査なし |
 | [#40](https://github.com/tonbiattack/fastest-picture-viewer/issues/40) | 画像の共有・情報シート | P2 | 既存メタデータを使用。フルサイズ再読み込みなし |
 | [#41](https://github.com/tonbiattack/fastest-picture-viewer/issues/41) | 起動時の「前回の続き」 | P2 | 1件だけ保存。起動時に全件走査しない。自動オープンはせずカード表示 |
+| [#44](https://github.com/tonbiattack/fastest-picture-viewer/issues/44) | 縦横で別々のグリッド列数保存 | P1 | SharedPreferences の読み書きのみ。回転時に適用値を切り替えるだけ |
+| [#45](https://github.com/tonbiattack/fastest-picture-viewer/issues/45) | 写真一覧のピンチによる一時列数変更 | P1 | 保存しない一時値。指を離したら戻す。1本指操作は消費しない |
+| [#46](https://github.com/tonbiattack/fastest-picture-viewer/issues/46) | フォルダへのタグ付与・一括付与・タグ絞り込み | P1 | 既存一覧はメモリ上で絞る。付与は NonCancellable のバックグラウンド書き込み |
 
 ## 保留・不採用
 
@@ -24,7 +27,7 @@
 | サイズ順ソート | 保留 | 新しい複合インデックスとDBマイグレーションが必要。自然順・更新日時で足りるか確認してから |
 | フォルダ名順・サイズ順ソート | 保留 | フォルダ一覧の並び順追加。要望が強ければ既存の`FolderSortMode`を拡張 |
 | 画像の削除 | 不採用（現時点） | 破壊的でMediaStoreの権限・ゴミ箱仕様の確認が必要。まずは端末の標準ギャラリーに任せる |
-| タグ・アルバム・コレクション | 保留 | データモデルと管理UIが大きい。お気に入りで代替できる範囲を超えたら検討 |
+| タグ・アルバム・コレクション | 一部採用 | フォルダへのタグ付与とタグ絞り込みを実装（#46）。タグの階層化・色分けは保留。データモデルは `tags` / `folder_tags` の2テーブル |
 | 全フォルダ横断の画像名検索（FTS） | 保留 | 35万件規模のインデックス構築とDB容量増の検証が必要。まずはフォルダ内検索（#39）から |
 | クラウド同期・バックアップ | 不採用 | オフライン前提の個人用アプリという方針に反する |
 | 動画・GIFの再生 | 対象外 | 画像ビューアの範囲外。必要なら別アプリ/別Issueで検討 |

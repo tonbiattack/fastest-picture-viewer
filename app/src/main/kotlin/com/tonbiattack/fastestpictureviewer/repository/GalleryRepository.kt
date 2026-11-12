@@ -7,9 +7,12 @@ import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderListScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
+import com.tonbiattack.fastestpictureviewer.data.FolderTagNameRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
+import com.tonbiattack.fastestpictureviewer.data.TagEntity
+import com.tonbiattack.fastestpictureviewer.data.TagWithCount
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -103,4 +106,35 @@ interface GalleryRepository {
         anchorIndex: Int,
         anchorOffsetPx: Int
     )
+
+    /** タグ一覧を購読する (Issue #46) */
+    fun observeTags(): Flow<List<TagEntity>>
+
+    /** 付与件数付きのタグ一覧を購読する */
+    fun observeTagsWithCount(): Flow<List<TagWithCount>>
+
+    /** フォルダ別のタグ名を購読する (バッジ表示用) */
+    fun observeFolderTagNames(): Flow<List<FolderTagNameRow>>
+
+    /**
+     * タグ名からタグを取得する。存在しなければ新規作成する。
+     * 正規化名が同じタグがあればそれを返すため、重複タグは作られない。
+     * 空文字は null を返す。
+     */
+    suspend fun findOrCreateTag(rawName: String): TagEntity?
+
+    /** フォルダのタグを指定内容に置き換える (複数タグの付与・解除) */
+    suspend fun setFolderTags(folderKey: String, tagIds: Set<Long>)
+
+    /** 複数フォルダへタグをまとめて付与する。既存の他タグは消さない */
+    suspend fun addTagsToFolders(tagIds: Set<Long>, folderKeys: Collection<String>)
+
+    /**
+     * タグ名を変更する。正規化名が他のタグと衝突する場合は変更せず false を返す。
+     * 空文字や長すぎる名前は正規化して扱う。
+     */
+    suspend fun renameTag(tagId: Long, rawName: String): Boolean
+
+    /** タグとフォルダとの紐付けをまとめて削除する */
+    suspend fun deleteTag(tagId: Long)
 }

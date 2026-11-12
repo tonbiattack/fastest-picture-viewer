@@ -2,17 +2,22 @@ package com.tonbiattack.fastestpictureviewer.ui.folder
 
 import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
+import com.tonbiattack.fastestpictureviewer.core.util.TagNames
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderListScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
+import com.tonbiattack.fastestpictureviewer.data.FolderTagEntity
+import com.tonbiattack.fastestpictureviewer.data.FolderTagNameRow
 import com.tonbiattack.fastestpictureviewer.data.LastViewedFolder
 import com.tonbiattack.fastestpictureviewer.data.LastViewedStore
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
+import com.tonbiattack.fastestpictureviewer.data.TagEntity
+import com.tonbiattack.fastestpictureviewer.data.TagWithCount
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import com.tonbiattack.fastestpictureviewer.repository.SyncMode
 import com.tonbiattack.fastestpictureviewer.repository.SyncResult
@@ -159,6 +164,57 @@ class FolderListViewModelTest {
                 anchorOffsetPx = anchorOffsetPx,
                 updatedAtSec = 1L
             )
+        }
+
+        val tagsFlow = MutableStateFlow<List<TagEntity>>(emptyList())
+        val tagCountsFlow = MutableStateFlow<List<TagWithCount>>(emptyList())
+        val folderTagsFlow = MutableStateFlow<List<FolderTagEntity>>(emptyList())
+        val folderTagNamesFlow = MutableStateFlow<List<FolderTagNameRow>>(emptyList())
+        val folderTagMap = mutableMapOf<String, MutableSet<Long>>()
+
+        override fun observeTags(): Flow<List<TagEntity>> = tagsFlow
+        override fun observeTagsWithCount(): Flow<List<TagWithCount>> = tagCountsFlow
+        override fun observeFolderTagNames(): Flow<List<FolderTagNameRow>> = folderTagNamesFlow
+
+        override suspend fun findOrCreateTag(rawName: String): TagEntity? {
+            val name = TagNames.display(rawName) ?: return null
+            val existing = tagsFlow.value.firstOrNull { it.displayName == name }
+            if (existing != null) return existing
+            val entity = TagEntity(
+                tagId = (tagsFlow.value.maxOfOrNull { it.tagId } ?: 0L) + 1L,
+                displayName = name,
+                normalizedName = TagNames.key(name) ?: name,
+                createdAtSec = 1L
+            )
+            tagsFlow.value = tagsFlow.value + entity
+            return entity
+        }
+
+        override suspend fun setFolderTags(folderKey: String, tagIds: Set<Long>) {
+            folderTagMap[folderKey] = tagIds.toMutableSet()
+        }
+
+        val bulkAssigned = mutableListOf<Pair<Set<Long>, List<String>>>()
+
+        override suspend fun addTagsToFolders(tagIds: Set<Long>, folderKeys: Collection<String>) {
+            bulkAssigned += tagIds to folderKeys.toList()
+            folderKeys.forEach { key ->
+                folderTagMap.getOrPut(key) { mutableSetOf() }.addAll(tagIds)
+            }
+        }
+
+        override suspend fun renameTag(tagId: Long, rawName: String): Boolean {
+            val name = TagNames.display(rawName) ?: return false
+            tagsFlow.value = tagsFlow.value.map {
+                if (it.tagId == tagId) it.copy(displayName = name, normalizedName = TagNames.key(name)!!)
+                else it
+            }
+            return true
+        }
+
+        override suspend fun deleteTag(tagId: Long) {
+            tagsFlow.value = tagsFlow.value.filterNot { it.tagId == tagId }
+            folderTagMap.values.forEach { it.remove(tagId) }
         }
     }
 
@@ -539,8 +595,7 @@ class FolderListViewModelTest {
     }
 
     @Test
-    fun `前回の続きを状態に反映しクリアできる`() = runTest {
-        val repo = FakeRepository()
+    fun `前回の続きを状態に反映しクリアできる`() = runTest {        val repo = FakeRepository()
         val key = FolderKeys.create("v", "Pictures/Resume/")
         repo.foldersFlow.value = listOf(summary(key))
         val store = FakeLastViewedStore(
@@ -563,5 +618,173 @@ class FolderListViewModelTest {
         advanceUntilIdle()
         assertNull(vm.uiState.value.resumeFolder)
         assertNull(vm.uiState.value.resumeItemId)
+    }
+
+    @Test
+    fun `フォルダに付いたタグがセルに表示される`() = runTest {
+        val repo = FakeRepository()
+        val key = FolderKeys.create("v", "Pictures/A/")
+        repo.foldersFlow.value = listOf(summary(key))
+        val tag = TagEntity(tagId = 1L, displayName = "旅行", normalizedName = "旅行", createdAtSec = 1L)
+        repo.tagsFlow.value = listOf(tag)
+        repo.tagCountsFlow.value = listOf(TagWithCount(1L, "旅行", "旅行", 1L))
+        repo.folderTagNamesFlow.value = listOf(FolderTagNameRow(key, 1L, "旅行"))
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val folder = vm.uiState.value.folders.single()
+        assertEquals(listOf("旅行"), folder.tags.map { it.displayName })
+        assertEquals(1, vm.uiState.value.allTags.size)
+    }
+
+    @Test
+    fun `タグが未設定のフォルダも通常表示される`() = runTest {
+        val repo = FakeRepository()
+        val withTag = FolderKeys.create("v", "Pictures/A/")
+        val withoutTag = FolderKeys.create("v", "Pictures/B/")
+        repo.foldersFlow.value = listOf(summary(withTag), summary(withoutTag))
+        repo.folderTagNamesFlow.value = listOf(FolderTagNameRow(withTag, 1L, "旅行"))
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(2, vm.uiState.value.folders.size)
+        assertEquals(0, vm.uiState.value.folders.first { it.folderKey == withoutTag }.tags.size)
+    }
+
+    @Test
+    fun `タグのOR絞り込みは指定タグを1つでも持つフォルダを表示する`() = runTest {
+        val repo = FakeRepository()
+        val a = FolderKeys.create("v", "Pictures/A/")
+        val b = FolderKeys.create("v", "Pictures/B/")
+        val c = FolderKeys.create("v", "Pictures/C/")
+        repo.foldersFlow.value = listOf(summary(a), summary(b), summary(c))
+        repo.folderTagNamesFlow.value = listOf(
+            FolderTagNameRow(a, 1L, "旅行"),
+            FolderTagNameRow(b, 2L, "家族"),
+            FolderTagNameRow(c, 2L, "家族")
+        )
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.toggleTagFilter(1L)
+        advanceUntilIdle()
+        assertEquals(listOf(a), vm.uiState.value.folders.map { it.folderKey })
+        assertTrue(vm.uiState.value.isFiltered)
+
+        vm.toggleTagFilter(2L)
+        advanceUntilIdle()
+        assertEquals(setOf(a, b, c), vm.uiState.value.folders.map { it.folderKey }.toSet())
+
+        vm.clearTagFilter()
+        advanceUntilIdle()
+        assertEquals(3, vm.uiState.value.folders.size)
+        assertFalse(vm.uiState.value.isFiltered)
+    }
+
+    @Test
+    fun `タグのAND絞り込みはすべてのタグを持つフォルダだけを表示する`() = runTest {
+        val repo = FakeRepository()
+        val both = FolderKeys.create("v", "Pictures/Both/")
+        val onlyOne = FolderKeys.create("v", "Pictures/One/")
+        repo.foldersFlow.value = listOf(summary(both), summary(onlyOne))
+        repo.folderTagNamesFlow.value = listOf(
+            FolderTagNameRow(both, 1L, "旅行"),
+            FolderTagNameRow(both, 2L, "家族"),
+            FolderTagNameRow(onlyOne, 1L, "旅行")
+        )
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.setTagFilterMode(TagFilterMode.AND)
+        vm.toggleTagFilter(1L)
+        vm.toggleTagFilter(2L)
+        advanceUntilIdle()
+
+        assertEquals(listOf(both), vm.uiState.value.folders.map { it.folderKey })
+        assertEquals(TagFilterMode.AND, vm.uiState.value.tagFilter.mode)
+    }
+
+    @Test
+    fun `タグ絞り込み中はスクロール位置を保存しない`() = runTest {
+        val repo = FakeRepository()
+        val a = summary(FolderKeys.create("v", "Pictures/A/"))
+        repo.foldersFlow.value = listOf(a)
+        repo.folderTagNamesFlow.value = listOf(FolderTagNameRow(a.folderKey, 1L, "旅行"))
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.toggleTagFilter(1L)
+        advanceUntilIdle()
+        vm.onScrollPositionChanged(index = 0, offsetPx = 10)
+        advanceUntilIdle()
+
+        assertTrue(repo.folderListScroll.isEmpty())
+    }
+
+    @Test
+    fun `個別付与は既存タグを検索して選択でき、未登録なら新規作成できる`() = runTest {
+        val repo = FakeRepository()
+        val key = FolderKeys.create("v", "Pictures/A/")
+        repo.foldersFlow.value = listOf(summary(key))
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.addTagByName(key, "旅行", emptySet())
+        advanceUntilIdle()
+        assertEquals(setOf(1L), repo.folderTagMap[key])
+
+        // 既存タグと同じ表記ゆれ (全角・空白) でも重複作成しない
+        vm.addTagByName(key, "　旅行　", repo.folderTagMap[key]!!)
+        advanceUntilIdle()
+        assertEquals(1, repo.tagsFlow.value.size)
+        assertEquals(setOf(1L), repo.folderTagMap[key])
+
+        vm.setFolderTags(key, emptySet())
+        advanceUntilIdle()
+        assertEquals(emptySet<Long>(), repo.folderTagMap[key])
+        // タグ自体は残る
+        assertEquals(1, repo.tagsFlow.value.size)
+    }
+
+    @Test
+    fun `検索結果の複数フォルダへ既存タグを一括付与できる`() = runTest {
+        val repo = FakeRepository()
+        val a = FolderKeys.create("v", "Pictures/A/")
+        val b = FolderKeys.create("v", "Pictures/B/")
+        repo.foldersFlow.value = listOf(summary(a), summary(b))
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.addTagsToFolders(setOf(1L, 2L), listOf(a, b))
+        advanceUntilIdle()
+
+        assertEquals(setOf(1L, 2L), repo.folderTagMap[a])
+        assertEquals(setOf(1L, 2L), repo.folderTagMap[b])
+        assertEquals(setOf(1L, 2L), repo.bulkAssigned.single().first)
+        assertEquals(listOf(a, b), repo.bulkAssigned.single().second)
+    }
+
+    @Test
+    fun `一括付与で新規タグを作成できる`() = runTest {
+        val repo = FakeRepository()
+        val a = FolderKeys.create("v", "Pictures/A/")
+        repo.foldersFlow.value = listOf(summary(a))
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.addNewTagToFolders("家族", listOf(a))
+        advanceUntilIdle()
+
+        assertEquals(1, repo.tagsFlow.value.size)
+        assertEquals("家族", repo.tagsFlow.value.single().displayName)
+        assertEquals(setOf(1L), repo.folderTagMap[a])
     }
 }

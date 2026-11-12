@@ -7,33 +7,87 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * フォルダ内画像グリッドの表示設定。
- * 列数はフォルダ一覧の列数設定とは独立して保存する (Issue #34)。
+ *
+ * - 列数はフォルダ一覧の列数設定とは独立して保存する (Issue #34)
+ * - 縦向き (Portrait) と横向き (Landscape) で別々の列数を保持する (Issue #44)
  */
 interface ImageGridViewSettings {
 
-    /** 現在の列数 (2〜6) */
+    /** 現在の向きで適用中の列数 (2〜6) */
     val columnCount: StateFlow<Int>
 
-    /** 列数を保存して即時反映する */
+    /** 縦向き用として保存されている列数 */
+    val portraitColumnCount: StateFlow<Int>
+
+    /** 横向き用として保存されている列数 */
+    val landscapeColumnCount: StateFlow<Int>
+
+    /** 現在の向きの列数を保存して即時反映する */
     fun setColumnCount(count: Int)
+
+    /** 画面の向きを通知する。保存値は変更せず、適用する列数だけ切り替える */
+    fun setLandscape(isLandscape: Boolean)
 }
 
-/** SharedPreferences による実装 */
+/**
+ * SharedPreferences による実装。
+ *
+ * 旧バージョンの単一キー (`column_count`) が存在する場合は、
+ * 縦向き・横向きの初期値として引き継ぎ、既存ユーザーの見た目を変えない。
+ */
 class SharedPreferencesImageGridViewSettings(context: Context) : ImageGridViewSettings {
 
     private val prefs = context.applicationContext
         .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    private val _columnCount = MutableStateFlow(
-        prefs.getInt(KEY_COLUMN_COUNT, DEFAULT_COLUMN_COUNT)
+    /** 旧キーの値 (存在しなければ既定値)。移行時の初期値にだけ使う */
+    private val legacyColumnCount: Int = prefs.getInt(KEY_LEGACY_COLUMN_COUNT, DEFAULT_COLUMN_COUNT)
+        .coerceIn(MIN_COLUMN_COUNT, MAX_COLUMN_COUNT)
+
+    private val _portraitColumnCount = MutableStateFlow(
+        prefs.getInt(KEY_PORTRAIT_COLUMN_COUNT, legacyColumnCount)
             .coerceIn(MIN_COLUMN_COUNT, MAX_COLUMN_COUNT)
     )
+    override val portraitColumnCount: StateFlow<Int> = _portraitColumnCount.asStateFlow()
+
+    private val _landscapeColumnCount = MutableStateFlow(
+        prefs.getInt(KEY_LANDSCAPE_COLUMN_COUNT, _portraitColumnCount.value)
+            .coerceIn(MIN_COLUMN_COUNT, MAX_COLUMN_COUNT)
+    )
+    override val landscapeColumnCount: StateFlow<Int> = _landscapeColumnCount.asStateFlow()
+
+    private val _isLandscape = MutableStateFlow(false)
+
+    private val _columnCount = MutableStateFlow(_portraitColumnCount.value)
     override val columnCount: StateFlow<Int> = _columnCount.asStateFlow()
+
+    init {
+        // 移行結果を書き戻し、次回起動で旧キーに依存しないようにする
+        prefs.edit()
+            .putInt(KEY_PORTRAIT_COLUMN_COUNT, _portraitColumnCount.value)
+            .putInt(KEY_LANDSCAPE_COLUMN_COUNT, _landscapeColumnCount.value)
+            .apply()
+    }
 
     override fun setColumnCount(count: Int) {
         val clamped = count.coerceIn(MIN_COLUMN_COUNT, MAX_COLUMN_COUNT)
-        prefs.edit().putInt(KEY_COLUMN_COUNT, clamped).apply()
+        if (_isLandscape.value) {
+            prefs.edit().putInt(KEY_LANDSCAPE_COLUMN_COUNT, clamped).apply()
+            _landscapeColumnCount.value = clamped
+        } else {
+            prefs.edit().putInt(KEY_PORTRAIT_COLUMN_COUNT, clamped).apply()
+            _portraitColumnCount.value = clamped
+        }
         _columnCount.value = clamped
+    }
+
+    override fun setLandscape(isLandscape: Boolean) {
+        _isLandscape.value = isLandscape
+        _columnCount.value = if (isLandscape) {
+            _landscapeColumnCount.value
+        } else {
+            _portraitColumnCount.value
+        }
     }
 
     companion object {
@@ -42,6 +96,10 @@ class SharedPreferencesImageGridViewSettings(context: Context) : ImageGridViewSe
         const val MAX_COLUMN_COUNT = 6
 
         private const val PREFS_NAME = "image_grid_view_settings"
-        private const val KEY_COLUMN_COUNT = "column_count"
+        private const val KEY_PORTRAIT_COLUMN_COUNT = "column_count_portrait"
+        private const val KEY_LANDSCAPE_COLUMN_COUNT = "column_count_landscape"
+
+        /** 旧バージョン (Issue #34) の単一キー。移行の初期値としてのみ読む */
+        private const val KEY_LEGACY_COLUMN_COUNT = "column_count"
     }
 }
