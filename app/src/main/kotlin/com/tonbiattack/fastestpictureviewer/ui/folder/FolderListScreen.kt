@@ -644,9 +644,14 @@ private fun ResumeFolderCard(
     onClear: () -> Unit
 ) {
     val context = LocalContext.current
-    val request = remember(folder.representativeImageUri, folder.latestModifiedSec) {
+    val request = remember(folder.representativeImageUri, folder.representativeModifiedSec, folder.representativeSize) {
         folder.representativeImageUri?.let {
-            folderThumbnailRequest(context, it, folder.latestModifiedSec)
+            folderThumbnailRequest(
+                context = context,
+                uri = it,
+                modifiedSec = folder.representativeModifiedSec,
+                size = folder.representativeSize
+            )
         }
     }
     ElevatedCard(
@@ -716,9 +721,14 @@ private fun FolderGridCell(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     var menuExpanded by remember { mutableStateOf(false) }
-    val request = remember(folder.representativeImageUri, folder.latestModifiedSec) {
+    val request = remember(folder.representativeImageUri, folder.representativeModifiedSec, folder.representativeSize) {
         folder.representativeImageUri?.let {
-            folderThumbnailRequest(context, it, folder.latestModifiedSec)
+            folderThumbnailRequest(
+                context = context,
+                uri = it,
+                modifiedSec = folder.representativeModifiedSec,
+                size = folder.representativeSize
+            )
         }
     }
 

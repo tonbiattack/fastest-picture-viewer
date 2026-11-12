@@ -16,6 +16,7 @@
 | [#44](https://github.com/tonbiattack/fastest-picture-viewer/issues/44) | 縦横で別々のグリッド列数保存 | P1 | SharedPreferences の読み書きのみ。回転時に適用値を切り替えるだけ |
 | [#45](https://github.com/tonbiattack/fastest-picture-viewer/issues/45) | 写真一覧のピンチによる一時列数変更 | P1 | 保存しない一時値。指を離したら戻す。1本指操作は消費しない |
 | [#46](https://github.com/tonbiattack/fastest-picture-viewer/issues/46) | フォルダへのタグ付与・一括付与・タグ絞り込み | P1 | 既存一覧はメモリ上で絞る。付与は NonCancellable のバックグラウンド書き込み |
+| [#49](https://github.com/tonbiattack/fastest-picture-viewer/issues/49) | フォルダ代表サムネイルを自然順先頭に統一 | P1 | `GROUP BY folderKey` + `MIN(合成キー)` で 1 クエリ。ウィンドウ関数は使わない |
 
 ## 保留・不採用
 

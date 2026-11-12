@@ -1,6 +1,7 @@
 package com.tonbiattack.fastestpictureviewer.core.image
 
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,6 +59,29 @@ class GalleryImageCacheKeysTest {
         assertNotEquals(
             GalleryImageCacheKeys.forFolder(uri, 100L),
             GalleryImageCacheKeys.forFolder(uri, 200L)
+        )
+    }
+
+    @Test
+    fun `代表画像が別のファイルに変わるとキャッシュキーが変わる`() {
+        // 先頭画像の削除・リネームで URI が変わればキーも変わる (Issue #49)
+        assertNotEquals(
+            GalleryImageCacheKeys.forFolder("content://media/external/images/media/1", 100L, 10L),
+            GalleryImageCacheKeys.forFolder("content://media/external/images/media/2", 100L, 10L)
+        )
+    }
+
+    @Test
+    fun `同じ代表画像ならサイズが同じ限りキーは安定する`() {
+        val uri = "content://media/external/images/media/1"
+        assertEquals(
+            GalleryImageCacheKeys.forFolder(uri, 100L, 10L),
+            GalleryImageCacheKeys.forFolder(uri, 100L, 10L)
+        )
+        // 上書きされるとサイズで検出できる
+        assertNotEquals(
+            GalleryImageCacheKeys.forFolder(uri, 100L, 10L),
+            GalleryImageCacheKeys.forFolder(uri, 100L, 20L)
         )
     }
 }
