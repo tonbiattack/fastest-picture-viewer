@@ -2,6 +2,7 @@ package com.tonbiattack.fastestpictureviewer.ui.folder
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
@@ -75,6 +77,7 @@ import com.tonbiattack.fastestpictureviewer.R
 import com.tonbiattack.fastestpictureviewer.core.image.folderThumbnailRequest
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
+import com.tonbiattack.fastestpictureviewer.data.TagWithCount
 import com.tonbiattack.fastestpictureviewer.ui.components.FastScroller
 import kotlinx.coroutines.flow.distinctUntilChanged
 import java.text.SimpleDateFormat
@@ -107,9 +110,25 @@ fun FolderListScreen(
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showDisplaySettings by remember { mutableStateOf(false) }
+    var showTagFilter by remember { mutableStateOf(false) }
+    var showTagManagement by remember { mutableStateOf(false) }
+    var tagEditorFolder by remember { mutableStateOf<FolderUiModel?>(null) }
+    var tagEditorSelected by remember { mutableStateOf(emptySet<Long>()) }
+    var bulkAssignTargets by remember { mutableStateOf<List<String>?>(null) }
     var topMenuExpanded by remember { mutableStateOf(false) }
     var searchActive by remember { mutableStateOf(state.isSearching) }
     var pendingExclude by remember { mutableStateOf<FolderUiModel?>(null) }
+    // 検索結果から複数フォルダを選んで一括付与するモード (Issue #46)
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedKeys by remember { mutableStateOf(emptySet<String>()) }
+
+    // 検索が終わったら選択モードも解除する
+    LaunchedEffect(state.isSearching) {
+        if (!state.isSearching) {
+            selectionMode = false
+            selectedKeys = emptySet()
+        }
+    }
 
     if (showClearCacheDialog) {
         AlertDialog(
@@ -161,6 +180,66 @@ fun FolderListScreen(
             dismissButton = {
                 TextButton(onClick = { pendingExclude = null }) { Text("キャンセル") }
             }
+        )
+    }
+
+    // タグ編集: 選択状態はダイアログ側のローカル集合で保持し、操作のたびに全体を保存する
+    tagEditorFolder?.let { target ->
+        FolderTagEditorDialog(
+            folderName = target.folderName,
+            selectedTagIds = tagEditorSelected,
+            allTags = state.allTags,
+            onToggle = { tagId, add ->
+                val next = if (add) tagEditorSelected + tagId else tagEditorSelected - tagId
+                tagEditorSelected = next
+                viewModel.setFolderTags(target.folderKey, next)
+            },
+            onCreateAndAdd = { name ->
+                viewModel.addTagByName(
+                    folderKey = target.folderKey,
+                    rawName = name,
+                    currentTagIds = tagEditorSelected
+                ) { createdId ->
+                    // 作成直後に選択済みとして表示する (Room の反映を待たない)
+                    tagEditorSelected = tagEditorSelected + createdId
+                }
+            },
+            onDismiss = { tagEditorFolder = null }
+        )
+    }
+
+    bulkAssignTargets?.let { targets ->
+        BulkTagAssignDialog(
+            targetCount = targets.size,
+            allTags = state.allTags,
+            onApply = { tagIds, newTagName ->
+                if (newTagName != null) {
+                    viewModel.addNewTagToFolders(newTagName, targets)
+                } else {
+                    viewModel.addTagsToFolders(tagIds, targets)
+                }
+            },
+            onDismiss = { bulkAssignTargets = null }
+        )
+    }
+
+    if (showTagFilter) {
+        TagFilterDialog(
+            allTags = state.allTags,
+            filter = state.tagFilter,
+            onToggle = viewModel::toggleTagFilter,
+            onModeChange = viewModel::setTagFilterMode,
+            onClear = viewModel::clearTagFilter,
+            onDismiss = { showTagFilter = false }
+        )
+    }
+
+    if (showTagManagement) {
+        TagManagementDialog(
+            allTags = state.allTags,
+            onRename = viewModel::renameTag,
+            onDelete = viewModel::deleteTag,
+            onDismiss = { showTagManagement = false }
         )
     }
 
@@ -229,6 +308,20 @@ fun FolderListScreen(
                                     }
                                 )
                                 DropdownMenuItem(
+                                    text = { Text("タグで絞り込み") },
+                                    onClick = {
+                                        topMenuExpanded = false
+                                        showTagFilter = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("タグの管理") },
+                                    onClick = {
+                                        topMenuExpanded = false
+                                        showTagManagement = true
+                                    }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("除外フォルダ") },
                                     onClick = {
                                         topMenuExpanded = false
@@ -254,6 +347,44 @@ fun FolderListScreen(
                         onClear = viewModel::clearSearch
                     )
                 }
+                // 検索中の一括付与操作。対象件数を常に見えるようにして誤操作を防ぐ (Issue #46)
+                if (selectionMode) {
+                    BulkAssignBar(
+                        selectedCount = selectedKeys.size,
+                        resultCount = state.folders.size,
+                        onAssignSelected = {
+                            val targets = state.folders
+                                .map { it.folderKey }
+                                .filter { it in selectedKeys }
+                            if (targets.isNotEmpty()) bulkAssignTargets = targets
+                        },
+                        onAssignAll = {
+                            val targets = state.folders.map { it.folderKey }
+                            if (targets.isNotEmpty()) bulkAssignTargets = targets
+                        },
+                        onCancel = {
+                            selectionMode = false
+                            selectedKeys = emptySet()
+                        }
+                    )
+                } else if (state.isSearching) {
+                    TextButton(
+                        onClick = {
+                            selectionMode = true
+                            selectedKeys = emptySet()
+                        },
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    ) {
+                        Text("複数選択してタグを一括付与")
+                    }
+                }
+                if (state.tagFilter.isActive) {
+                    ActiveTagFilterBar(
+                        filter = state.tagFilter,
+                        tags = state.allTags,
+                        onClear = viewModel::clearTagFilter
+                    )
+                }
             }
         }
     ) { padding ->
@@ -276,7 +407,8 @@ fun FolderListScreen(
                 state.folders.isEmpty() && !state.isSyncing -> EmptyHint(
                     searchQuery = state.searchQuery,
                     favoritesOnly = state.favoritesOnly,
-                    hasFolders = state.hasFolders
+                    hasFolders = state.hasFolders,
+                    tagFilterActive = state.tagFilter.isActive
                 )
 
                 else -> Column(modifier = Modifier.fillMaxSize()) {
@@ -308,6 +440,19 @@ fun FolderListScreen(
                             },
                             onExcludeRequest = { pendingExclude = it },
                             onOpenFolder = onOpenFolder,
+                            selectionMode = selectionMode,
+                            selectedKeys = selectedKeys,
+                            onToggleSelection = { key ->
+                                selectedKeys = if (key in selectedKeys) {
+                                    selectedKeys - key
+                                } else {
+                                    selectedKeys + key
+                                }
+                            },
+                            onEditTags = { folder ->
+                                tagEditorSelected = folder.tags.mapTo(hashSetOf()) { it.tagId }
+                                tagEditorFolder = folder
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
@@ -427,6 +572,10 @@ private fun FolderGrid(
     onFavoriteToggle: (FolderUiModel) -> Unit,
     onExcludeRequest: (FolderUiModel) -> Unit,
     onOpenFolder: (FolderUiModel) -> Unit,
+    selectionMode: Boolean,
+    selectedKeys: Set<String>,
+    onToggleSelection: (String) -> Unit,
+    onEditTags: (FolderUiModel) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val gridState = rememberLazyGridState(
@@ -459,9 +608,23 @@ private fun FolderGrid(
             items(folders, key = { it.folderKey }, contentType = { "folder" }) { folder ->
                 FolderGridCell(
                     folder = folder,
-                    onClick = { onOpenFolder(folder) },
+                    selectionMode = selectionMode,
+                    selected = folder.folderKey in selectedKeys,
+                    onClick = {
+                        if (selectionMode) {
+                            onToggleSelection(folder.folderKey)
+                        } else {
+                            onOpenFolder(folder)
+                        }
+                    },
                     onFavoriteToggle = { onFavoriteToggle(folder) },
-                    onExcludeRequest = { onExcludeRequest(folder) }
+                    onExcludeRequest = { onExcludeRequest(folder) },
+                    onEditTags = { onEditTags(folder) },
+                    onLongClick = {
+                        if (selectionMode) {
+                            onToggleSelection(folder.folderKey)
+                        }
+                    }
                 )
             }
         }
@@ -542,9 +705,13 @@ private fun ResumeFolderCard(
 @Composable
 private fun FolderGridCell(
     folder: FolderUiModel,
+    selectionMode: Boolean,
+    selected: Boolean,
     onClick: () -> Unit,
     onFavoriteToggle: () -> Unit,
-    onExcludeRequest: () -> Unit
+    onExcludeRequest: () -> Unit,
+    onEditTags: () -> Unit,
+    onLongClick: () -> Unit
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -559,14 +726,30 @@ private fun FolderGridCell(
         ElevatedCard(
             modifier = Modifier
                 .fillMaxWidth()
+                .then(
+                    if (selected) {
+                        Modifier.border(
+                            width = 2.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = {
-                        // 長押しでメニュー。スクロール中の誤表示は combinedClickable が抑止する
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        menuExpanded = true
+                        if (selectionMode) {
+                            // 選択モード中は長押しも選択トグルとして扱う
+                            onLongClick()
+                        } else {
+                            // 長押しでメニュー。スクロール中の誤表示は combinedClickable が抑止する
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            menuExpanded = true
+                        }
                     },
-                    onClickLabel = "フォルダを開く",
+                    onClickLabel = if (selectionMode) "選択を切り替え" else "フォルダを開く",
                     onLongClickLabel = "フォルダメニュー"
                 )
         ) {
@@ -642,6 +825,51 @@ private fun FolderGridCell(
                             maxLines = 1
                         )
                     }
+                    if (folder.tags.isNotEmpty()) {
+                        // タグは最大 2 件だけ表示し、高さを増やしすぎない (Issue #46)
+                        Spacer(Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            folder.tags.take(2).forEach { tag ->
+                                FolderTagChip(name = tag.displayName)
+                            }
+                            if (folder.tags.size > 2) {
+                                Text(
+                                    "+${folder.tags.size - 2}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 選択モード中はチェック状態を画像左上に重ねる
+        if (selectionMode) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .size(28.dp)
+                    .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+                    .border(2.dp, Color.White, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                if (selected) {
+                    Icon(
+                        Icons.Filled.CheckCircle,
+                        contentDescription = "選択済み",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                } else {
+                    Icon(
+                        Icons.Filled.CheckCircle,
+                        contentDescription = "未選択",
+                        tint = Color.Transparent,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
         }
@@ -664,12 +892,112 @@ private fun FolderGridCell(
                 }
             )
             DropdownMenuItem(
+                text = { Text("タグを編集") },
+                onClick = {
+                    menuExpanded = false
+                    onEditTags()
+                }
+            )
+            DropdownMenuItem(
                 text = { Text("このフォルダを除外") },
                 onClick = {
                     menuExpanded = false
                     onExcludeRequest()
                 }
             )
+        }
+    }
+}
+
+/** フォルダカードに出すタグの小さなバッジ */
+@Composable
+private fun FolderTagChip(name: String) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        tonalElevation = 0.dp
+    ) {
+        Text(
+            text = name,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+        )
+    }
+}
+
+/**
+ * 検索結果への一括付与バー。
+ * 「選択した N 件」と「検索結果すべて N 件」を別ボタンに分け、対象件数を明示する。
+ */
+@Composable
+private fun BulkAssignBar(
+    selectedCount: Int,
+    resultCount: Int,
+    onAssignSelected: () -> Unit,
+    onAssignAll: () -> Unit,
+    onCancel: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "選択中 ${selectedCount} 件 / 検索結果 ${resultCount} 件",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                TextButton(onClick = onCancel) { Text("やめる") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    enabled = selectedCount > 0,
+                    onClick = onAssignSelected
+                ) { Text("選択した ${selectedCount} 件にタグ付与") }
+                TextButton(
+                    enabled = resultCount > 0,
+                    onClick = onAssignAll
+                ) { Text("検索結果すべて ${resultCount} 件に付与") }
+            }
+        }
+    }
+}
+
+/** 適用中のタグ絞り込みを表示し、解除できるようにする */
+@Composable
+private fun ActiveTagFilterBar(
+    filter: TagFilterState,
+    tags: List<TagWithCount>,
+    onClear: () -> Unit
+) {
+    val names = tags.filter { it.tagId in filter.tagIds }.map { it.displayName }
+    val label = names.joinToString(if (filter.mode == TagFilterMode.AND) " かつ " else " または ")
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.secondaryContainer
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (label.isBlank()) "タグで絞り込み中" else "タグ: $label",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = onClear) { Text("解除") }
         }
     }
 }
@@ -688,10 +1016,12 @@ private fun InitialScanHint() {
 private fun EmptyHint(
     searchQuery: String,
     favoritesOnly: Boolean,
-    hasFolders: Boolean
+    hasFolders: Boolean,
+    tagFilterActive: Boolean
 ) {
     val message = when {
         searchQuery.isNotBlank() -> "一致するフォルダがありません"
+        tagFilterActive && hasFolders -> "タグに一致するフォルダがありません"
         favoritesOnly && hasFolders -> "お気に入りのフォルダがありません"
         hasFolders -> "表示できるフォルダがありません"
         else -> "画像が見つかりませんでした"

@@ -8,9 +8,12 @@ import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderListScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
+import com.tonbiattack.fastestpictureviewer.data.FolderTagNameRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
+import com.tonbiattack.fastestpictureviewer.data.TagEntity
+import com.tonbiattack.fastestpictureviewer.data.TagWithCount
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import com.tonbiattack.fastestpictureviewer.repository.SyncMode
 import com.tonbiattack.fastestpictureviewer.repository.SyncResult
@@ -42,8 +45,23 @@ class ImageGridViewModelTest {
         private val _columnCount = MutableStateFlow(initial)
         override val columnCount: StateFlow<Int> = _columnCount
 
+        private val _portrait = MutableStateFlow(initial)
+        override val portraitColumnCount: StateFlow<Int> = _portrait
+
+        private val _landscape = MutableStateFlow(initial)
+        override val landscapeColumnCount: StateFlow<Int> = _landscape
+
+        private var isLandscape = false
+
         override fun setColumnCount(count: Int) {
-            _columnCount.value = count.coerceIn(2, 6)
+            val clamped = count.coerceIn(2, 6)
+            _columnCount.value = clamped
+            if (isLandscape) _landscape.value = clamped else _portrait.value = clamped
+        }
+
+        override fun setLandscape(isLandscape: Boolean) {
+            this.isLandscape = isLandscape
+            _columnCount.value = if (isLandscape) _landscape.value else _portrait.value
         }
     }
 
@@ -93,6 +111,14 @@ class ImageGridViewModelTest {
             anchorIndex: Int,
             anchorOffsetPx: Int
         ) = Unit
+        override fun observeTags(): Flow<List<TagEntity>> = MutableStateFlow(emptyList())
+        override fun observeTagsWithCount(): Flow<List<TagWithCount>> = MutableStateFlow(emptyList())
+        override fun observeFolderTagNames(): Flow<List<FolderTagNameRow>> = MutableStateFlow(emptyList())
+        override suspend fun findOrCreateTag(rawName: String): TagEntity? = null
+        override suspend fun setFolderTags(folderKey: String, tagIds: Set<Long>) = Unit
+        override suspend fun addTagsToFolders(tagIds: Set<Long>, folderKeys: Collection<String>) = Unit
+        override suspend fun renameTag(tagId: Long, rawName: String): Boolean = true
+        override suspend fun deleteTag(tagId: Long) = Unit
     }
 
     private fun images(count: Int): List<ImageItem> = (0 until count).map { index ->

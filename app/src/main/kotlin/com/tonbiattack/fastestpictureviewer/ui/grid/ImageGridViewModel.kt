@@ -50,6 +50,10 @@ data class ImageGridUiState(
     val isScrollRestored: Boolean = false,
     /** 画像グリッドの列数 (2〜6) */
     val columnCount: Int = 3,
+    /** 縦向き用に保存されている列数 (Issue #44) */
+    val portraitColumnCount: Int = 3,
+    /** 横向き用に保存されている列数 (Issue #44) */
+    val landscapeColumnCount: Int = 3,
     /** 詳細画面から戻った際のスクロール先 */
     val scrollTarget: ImageGridScrollTarget? = null,
     /** 詳細画面から戻るたびに増える世代。グリッド再生成のキーに使う */
@@ -85,13 +89,20 @@ private data class GridFilter(
 private data class GridUiContext(
     val favoriteOverrides: Map<String, Boolean>,
     val restore: ScrollRestore,
-    val columnCount: Int,
+    val columns: ColumnSettings,
     val scrollTarget: ImageGridScrollTarget?,
     val returnRequestId: Long,
     val filter: GridFilter
 ) {
     val isFiltered: Boolean get() = filter.query.isNotBlank() || filter.favoritesOnly
 }
+
+/** 向き別の列数設定 (Issue #44) */
+private data class ColumnSettings(
+    val portrait: Int,
+    val landscape: Int,
+    val current: Int
+)
 
 /**
  * フォルダ内画像一覧の ViewModel。
@@ -139,9 +150,18 @@ class ImageGridViewModel(
     /** グリッドを再生成する世代。スクロール先の消費後も値を維持する */
     private val returnRequest = MutableStateFlow(0L)
 
+    /** 縦横それぞれの保存値と、現在適用中の列数をまとめる (Issue #44) */
+    private val columnSettings = combine(
+        viewSettings.portraitColumnCount,
+        viewSettings.landscapeColumnCount,
+        viewSettings.columnCount
+    ) { portrait, landscape, current ->
+        ColumnSettings(portrait = portrait, landscape = landscape, current = current)
+    }
+
     private val uiContext = combine(
         scrollRestore,
-        viewSettings.columnCount,
+        columnSettings,
         scrollTarget,
         returnRequest,
         filterContext
@@ -150,7 +170,7 @@ class ImageGridViewModel(
         GridUiContext(
             favoriteOverrides = overrides,
             restore = restore,
-            columnCount = columns,
+            columns = columns,
             scrollTarget = target,
             returnRequestId = returnId,
             filter = filter
@@ -230,7 +250,9 @@ class ImageGridViewModel(
             },
             initialOffset = if (context.isFiltered) 0 else context.restore.offsetPx,
             isScrollRestored = context.restore.loaded,
-            columnCount = context.columnCount,
+            columnCount = context.columns.current,
+            portraitColumnCount = context.columns.portrait,
+            landscapeColumnCount = context.columns.landscape,
             scrollTarget = context.scrollTarget,
             returnRequestId = context.returnRequestId,
             isSyncing = sync.isRunning
@@ -303,9 +325,16 @@ class ImageGridViewModel(
         )
     }
 
-    /** 列数を変更して永続化する */
+    /** 列数を変更して永続化する。縦横それぞれの保存値へ書き込む (Issue #44) */
     fun setColumnCount(count: Int) {
         viewSettings.setColumnCount(count)
+    }
+
+    /**
+     * 画面の向きを通知する。保存値は変えず、その向きで最後に設定した列数を適用する。
+     */
+    fun onOrientationChanged(isLandscape: Boolean) {
+        viewSettings.setLandscape(isLandscape)
     }
 
     /**

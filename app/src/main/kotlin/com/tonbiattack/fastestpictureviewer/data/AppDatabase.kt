@@ -18,6 +18,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * - folder_scroll_positions:  フォルダ別の画像一覧スクロール位置
  * - folder_list_scroll_positions: フォルダ一覧の並び順ごとのスクロール位置
  * - recent_folders:           最近閲覧したフォルダ
+ * - tags:                     フォルダに付与するタグ
+ * - folder_tags:              フォルダとタグの多対多関係
  */
 @Database(
     entities = [
@@ -29,9 +31,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ExcludedFolderEntity::class,
         FolderScrollPositionEntity::class,
         FolderListScrollPositionEntity::class,
-        RecentFolderEntity::class
+        RecentFolderEntity::class,
+        TagEntity::class,
+        FolderTagEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -45,6 +49,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun folderScrollPositionDao(): FolderScrollPositionDao
     abstract fun folderListScrollPositionDao(): FolderListScrollPositionDao
     abstract fun recentFolderDao(): RecentFolderDao
+    abstract fun tagDao(): TagDao
 
     companion object {
         const val DATABASE_NAME = "fastest-picture-viewer.db"
@@ -61,7 +66,8 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_3_4,
                 MIGRATION_4_5,
                 MIGRATION_5_6,
-                MIGRATION_6_7
+                MIGRATION_6_7,
+                MIGRATION_7_8
             ).build()
 
         /** テスト用のメモリ DB を構築する */
@@ -182,6 +188,41 @@ abstract class AppDatabase : RoomDatabase() {
                         PRIMARY KEY(`sortMode`)
                     )
                     """.trimIndent()
+                )
+            }
+        }
+
+        /**
+         * v7 → v8: フォルダタグと紐付けテーブルを追加する (Issue #46)。
+         * 既存のキャッシュ・お気に入り・除外設定は維持する。
+         */
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `tags` (
+                        `tagId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `displayName` TEXT NOT NULL,
+                        `normalizedName` TEXT NOT NULL,
+                        `createdAtSec` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_tags_normalizedName` ON `tags` (`normalizedName`)"
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `folder_tags` (
+                        `folderKey` TEXT NOT NULL,
+                        `tagId` INTEGER NOT NULL,
+                        `addedAtSec` INTEGER NOT NULL,
+                        PRIMARY KEY(`folderKey`, `tagId`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_folder_tags_tagId` ON `folder_tags` (`tagId`)"
                 )
             }
         }

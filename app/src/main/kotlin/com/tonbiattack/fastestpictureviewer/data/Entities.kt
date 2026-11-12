@@ -2,6 +2,7 @@ package com.tonbiattack.fastestpictureviewer.data
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -135,6 +136,50 @@ data class RecentFolderEntity(
 
     /** 最後に開いた日時 (エポック秒) */
     @ColumnInfo(name = "openedAtSec") val openedAtSec: Long
+)
+
+/**
+ * フォルダに付与するタグ (Issue #46)。
+ *
+ * [normalizedName] は表示名を NFKC + 小文字化 + 空白圧縮した重複判定キーで、
+ * UNIQUE インデックスにより同名タグの重複作成を防ぐ。元画像には変更を加えない。
+ */
+@Entity(
+    tableName = "tags",
+    indices = [Index(value = ["normalizedName"], unique = true)]
+)
+data class TagEntity(
+    /** 自動採番のタグ ID */
+    @PrimaryKey(autoGenerate = true) @ColumnInfo(name = "tagId") val tagId: Long = 0L,
+
+    /** 表示名 (前後空白除去・NFKC 正規化済み) */
+    @ColumnInfo(name = "displayName") val displayName: String,
+
+    /** 重複判定用の正規化名 (小文字化 + 空白圧縮) */
+    @ColumnInfo(name = "normalizedName") val normalizedName: String,
+
+    /** 作成日時 (エポック秒) */
+    @ColumnInfo(name = "createdAtSec") val createdAtSec: Long
+)
+
+/**
+ * フォルダとタグの多対多関係 (Issue #46)。
+ * [folderKey] は images と同じ安定した識別子 (volumeName:relativePath) を使う。
+ */
+@Entity(
+    tableName = "folder_tags",
+    primaryKeys = ["folderKey", "tagId"],
+    indices = [Index(value = ["tagId"])]
+)
+data class FolderTagEntity(
+    /** フォルダ識別子 (volumeName:relativePath) */
+    @ColumnInfo(name = "folderKey") val folderKey: String,
+
+    /** タグ ID */
+    @ColumnInfo(name = "tagId") val tagId: Long,
+
+    /** 付与日時 (エポック秒) */
+    @ColumnInfo(name = "addedAtSec") val addedAtSec: Long
 )
 
 /**

@@ -5,6 +5,7 @@ import android.util.Log
 import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.core.util.NaturalSortKey
+import com.tonbiattack.fastestpictureviewer.core.util.TagNames
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
@@ -12,11 +13,15 @@ import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderListScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
+import com.tonbiattack.fastestpictureviewer.data.FolderTagEntity
+import com.tonbiattack.fastestpictureviewer.data.FolderTagNameRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
 import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
 import com.tonbiattack.fastestpictureviewer.data.SyncStateEntity
+import com.tonbiattack.fastestpictureviewer.data.TagEntity
+import com.tonbiattack.fastestpictureviewer.data.TagWithCount
 import com.tonbiattack.fastestpictureviewer.data.VolumeSyncStateEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -55,6 +60,7 @@ class GalleryRepositoryImpl(
     private val folderScrollPositionDao = db.folderScrollPositionDao()
     private val folderListScrollPositionDao = db.folderListScrollPositionDao()
     private val recentFolderDao = db.recentFolderDao()
+    private val tagDao = db.tagDao()
 
     /** 同期の二重実行を防ぐ。実行中の要求は待たずにスキップする */
     private val syncMutex = Mutex()
@@ -222,6 +228,79 @@ class GalleryRepositoryImpl(
             } else {
                 favoriteDao.remove(itemId)
             }
+        }
+    }
+
+    override fun observeTags(): Flow<List<TagEntity>> = tagDao.observeTags()
+
+    override fun observeTagsWithCount(): Flow<List<TagWithCount>> = tagDao.observeTagsWithCount()
+
+    override fun observeFolderTagNames(): Flow<List<FolderTagNameRow>> =
+        tagDao.observeFolderTagNames()
+
+    override suspend fun findOrCreateTag(rawName: String): TagEntity? {
+        val displayName = TagNames.display(rawName) ?: return null
+        val normalizedName = TagNames.key(displayName) ?: return null
+        // 画面を離れた直後でも付与が失われないよう、キャンセル不可で書き込む
+        return withContext(Dispatchers.IO + NonCancellable) {
+            tagDao.findByNormalizedName(normalizedName) ?: run {
+                val entity = TagEntity(
+                    displayName = displayName,
+                    normalizedName = normalizedName,
+                    createdAtSec = nowSeconds()
+                )
+                val id = tagDao.insertIgnore(entity)
+                // IGNORE で採番されなかった場合は、他スレッドが先に作成している
+                if (id > 0L) entity.copy(tagId = id) else tagDao.findByNormalizedName(normalizedName)
+            }
+        }
+    }
+
+    override suspend fun setFolderTags(folderKey: String, tagIds: Set<Long>) {
+        withContext(Dispatchers.IO + NonCancellable) {
+            val current = tagDao.tagIdsForFolder(folderKey).toSet()
+            (current - tagIds).forEach { tagDao.removeLink(folderKey, it) }
+            val now = nowSeconds()
+            (tagIds - current).forEach { tagId ->
+                tagDao.addLink(
+                    FolderTagEntity(folderKey = folderKey, tagId = tagId, addedAtSec = now)
+                )
+            }
+        }
+    }
+
+    override suspend fun addTagsToFolders(tagIds: Set<Long>, folderKeys: Collection<String>) {
+        if (tagIds.isEmpty() || folderKeys.isEmpty()) return
+        withContext(Dispatchers.IO + NonCancellable) {
+            val now = nowSeconds()
+            // 大量フォルダでも UI をブロックしないよう、値の生成だけ行って 1 トランザクションで書く
+            val links = ArrayList<FolderTagEntity>(tagIds.size * folderKeys.size)
+            folderKeys.forEach { folderKey ->
+                tagIds.forEach { tagId ->
+                    links += FolderTagEntity(folderKey = folderKey, tagId = tagId, addedAtSec = now)
+                }
+            }
+            links.chunked(TAG_LINK_CHUNK_SIZE).forEach { chunk -> tagDao.addLinks(chunk) }
+        }
+    }
+
+    override suspend fun renameTag(tagId: Long, rawName: String): Boolean {
+        val displayName = TagNames.display(rawName) ?: return false
+        val normalizedName = TagNames.key(displayName) ?: return false
+        return withContext(Dispatchers.IO + NonCancellable) {
+            val existing = tagDao.findByNormalizedName(normalizedName)
+            if (existing != null && existing.tagId != tagId) {
+                false
+            } else {
+                tagDao.rename(tagId, displayName, normalizedName)
+                true
+            }
+        }
+    }
+
+    override suspend fun deleteTag(tagId: Long) {
+        withContext(Dispatchers.IO + NonCancellable) {
+            tagDao.deleteTag(tagId)
         }
     }
 
@@ -407,6 +486,9 @@ class GalleryRepositoryImpl(
 
     companion object {
         private const val DELETE_CHUNK_SIZE = 500
+
+        /** タグの一括付与を分割する件数 */
+        private const val TAG_LINK_CHUNK_SIZE = 500
 
         /** 削除を反映するための定期全件走査の間隔 (24 時間) */
         private const val FULL_SCAN_INTERVAL_SEC = 24L * 60L * 60L
