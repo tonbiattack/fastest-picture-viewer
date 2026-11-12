@@ -58,6 +58,10 @@ data class FolderUiModel(
     val imageCount: Long,
     val latestModifiedSec: Long,
     val representativeImageUri: String?,
+    /** 代表画像の更新日時。フォルダの最終更新日時とは別 (Issue #49) */
+    val representativeModifiedSec: Long = 0L,
+    /** 代表画像のファイルサイズ。サムネイルキャッシュのキーに使う */
+    val representativeSize: Long = 0L,
     val isFavorite: Boolean = false,
     /** 付与済みのタグ (表示用) */
     val tags: List<FolderTagUi> = emptyList()
@@ -539,9 +543,11 @@ class FolderListViewModel(
         favoriteKeys: Set<String>,
         tagsByFolder: Map<String, List<FolderTagUi>>
     ): List<FolderUiModel> {
-        // フォルダごとに代表サムネイルを最大 1 件割り当てる
-        val repByFolder = representatives.associateBy({ it.folderKey }, { it.id })
+        // フォルダごとに代表サムネイルを最大 1 件割り当てる。
+        // 代表画像はファイル名の自然順先頭で、フォルダの最新更新日時とは別の日時を持つ (Issue #49)
+        val repByFolder = representatives.associateBy({ it.folderKey }, { it })
         return map { row ->
+            val representative = repByFolder[row.folderKey]
             FolderUiModel(
                 folderKey = row.folderKey,
                 volumeName = row.volumeName,
@@ -549,7 +555,9 @@ class FolderListViewModel(
                 folderName = FolderNames.parse(row.relativePath),
                 imageCount = row.imageCount,
                 latestModifiedSec = row.latestModifiedSec,
-                representativeImageUri = repByFolder[row.folderKey],
+                representativeImageUri = representative?.id,
+                representativeModifiedSec = representative?.dateModifiedSec ?: 0L,
+                representativeSize = representative?.size ?: 0L,
                 isFavorite = row.folderKey in favoriteKeys,
                 tags = tagsByFolder[row.folderKey].orEmpty()
             )

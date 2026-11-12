@@ -77,6 +77,18 @@ data class ImageItem(
     val naturalSortKey: String = ""
 )
 
+/** 自然順キーの遅延バックフィル対象 */
+data class MissingNaturalSortKeyRow(
+    @ColumnInfo(name = "id") val id: String,
+    @ColumnInfo(name = "displayName") val displayName: String
+)
+
+/** 自然順キーの更新内容 */
+data class NaturalSortKeyUpdate(
+    val id: String,
+    val naturalSortKey: String
+)
+
 /** フォルダ一覧向けの集計行。フォルダ内画像の件数と最新更新日時を GROUP BY で取得する */
 data class FolderSummaryRow(
     @ColumnInfo(name = "folderKey") val folderKey: String,
@@ -86,8 +98,12 @@ data class FolderSummaryRow(
     @ColumnInfo(name = "latestModifiedSec") val latestModifiedSec: Long
 )
 
-/** フォルダ代表サムネイル行。各フォルダで最新の画像を取得する */
+/** フォルダ代表サムネイル行。各フォルダでファイル名の自然順先頭の画像を取得する */
 data class RepresentativeImageRow(
     @ColumnInfo(name = "id") val id: String,
-    @ColumnInfo(name = "folderKey") val folderKey: String
+    @ColumnInfo(name = "folderKey") val folderKey: String,
+    /** 代表画像の更新日時。サムネイルキャッシュのキーに使う */
+    @ColumnInfo(name = "dateModifiedSec") val dateModifiedSec: Long = 0L,
+    /** 代表画像のファイルサイズ。サムネイルキャッシュのキーに使う */
+    @ColumnInfo(name = "size") val size: Long = 0L
 )

@@ -103,6 +103,7 @@ class ImageViewerViewModelTest {
         override suspend fun addTagsToFolders(tagIds: Set<Long>, folderKeys: Collection<String>) = Unit
         override suspend fun renameTag(tagId: Long, rawName: String): Boolean = true
         override suspend fun deleteTag(tagId: Long) = Unit
+        override suspend fun backfillMissingNaturalSortKeys() = Unit
     }
 
     private fun images(count: Int): List<ImageItem> = (0 until count).map { index ->

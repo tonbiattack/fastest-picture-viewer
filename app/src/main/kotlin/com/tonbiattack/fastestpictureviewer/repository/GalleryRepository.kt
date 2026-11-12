@@ -137,4 +137,10 @@ interface GalleryRepository {
 
     /** タグとフォルダとの紐付けをまとめて削除する */
     suspend fun deleteTag(tagId: Long)
+
+    /**
+     * 自然順キーが未設定の旧DB行を埋める (Issue #49)。
+     * 代表サムネイルを自然順先頭で決めるために、起動後に一度呼ぶ。失敗しても動作は継続する。
+     */
+    suspend fun backfillMissingNaturalSortKeys()
 }

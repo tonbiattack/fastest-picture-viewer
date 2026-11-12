@@ -32,7 +32,8 @@ class ImageItemDaoTest {
         path: String,
         name: String,
         modifiedSec: Long,
-        mediaId: Long = id.hashCode().toLong()
+        mediaId: Long = id.hashCode().toLong(),
+        naturalKey: String = NaturalSortKey.create(name)
     ): ImageItem = ImageItem(
         id = id,
         mediaId = mediaId,
@@ -48,7 +49,7 @@ class ImageItemDaoTest {
         mimeType = "image/jpeg",
         width = 100,
         height = 100,
-        naturalSortKey = NaturalSortKey.create(name)
+        naturalSortKey = naturalKey
     )
 
     @Before
@@ -113,19 +114,125 @@ class ImageItemDaoTest {
     }
 
     @Test
-    fun `代表サムネイルは各フォルダの最新画像を1枚返す`() = runTest {
+    fun `代表サムネイルは各フォルダの自然順先頭画像を1枚返す`() = runTest {
         val dao = db.imageItemDao()
         dao.upsertAll(
             listOf(
-                buildItem("oldA", "v", "Pictures/A/", "a_old.jpg", 10L),
-                buildItem("newA", "v", "Pictures/A/", "a_new.jpg", 20L),
-                buildItem("newB", "v", "Pictures/B/", "b.jpg", 30L)
+                // 更新日時は先頭画像より新しいが、ファイル名が後ろの画像
+                buildItem("newA", "v", "Pictures/A/", "10.jpg", 900L),
+                buildItem("oldA", "v", "Pictures/A/", "2.jpg", 10L),
+                buildItem("firstA", "v", "Pictures/A/", "1.jpg", 20L),
+                buildItem("onlyB", "v", "Pictures/B/", "b.jpg", 30L)
             )
         )
         val reps = dao.observeRepresentatives().first()
             .associateBy({ it.folderKey }, { it.id })
-        assertEquals("newA", reps["v:Pictures/A/"])
-        assertEquals("newB", reps["v:Pictures/B/"])
+        assertEquals("firstA", reps["v:Pictures/A/"])
+        assertEquals("onlyB", reps["v:Pictures/B/"])
+    }
+
+    @Test
+    fun `代表サムネイルは1から10の例で1を選ぶ`() = runTest {
+        val dao = db.imageItemDao()
+        val path = "Pictures/Numeric/"
+        dao.upsertAll(
+            listOf(
+                buildItem("ten", "v", path, "10.jpg", 1L),
+                buildItem("two", "v", path, "2.jpg", 2L),
+                buildItem("one", "v", path, "1.jpg", 3L)
+            )
+        )
+        assertEquals("one", dao.observeRepresentatives().first().single().id)
+    }
+
+    @Test
+    fun `代表サムネイルは同日時でも1件に確定する`() = runTest {
+        val dao = db.imageItemDao()
+        val path = "Pictures/Tie/"
+        dao.upsertAll(
+            listOf(
+                buildItem("zzz", "v", path, "9.jpg", 100L),
+                buildItem("aaa", "v", path, "9.jpg", 100L),
+                buildItem("mmm", "v", path, "9.jpg", 100L)
+            )
+        )
+        val rows = dao.observeRepresentatives().first()
+        assertEquals(1, rows.size)
+        // 同名は mediaId 昇順で先頭の 1 件に決まる
+        assertEquals("aaa", rows.single().id)
+    }
+
+    @Test
+    fun `代表サムネイルは更新日時とサイズも返す`() = runTest {
+        val dao = db.imageItemDao()
+        val path = "Pictures/Meta/"
+        dao.upsertAll(
+            listOf(
+                buildItem("first", "v", path, "1.jpg", 111L),
+                buildItem("second", "v", path, "2.jpg", 222L)
+            )
+        )
+        val row = dao.observeRepresentatives().first().single()
+        assertEquals("first", row.id)
+        assertEquals(111L, row.dateModifiedSec)
+    }
+
+    @Test
+    fun `先頭画像を削除すると次の画像が代表になる`() = runTest {
+        val dao = db.imageItemDao()
+        val path = "Pictures/DeleteFirst/"
+        dao.upsertAll(
+            listOf(
+                buildItem("one", "v", path, "1.jpg", 1L),
+                buildItem("two", "v", path, "2.jpg", 2L),
+                buildItem("ten", "v", path, "10.jpg", 3L)
+            )
+        )
+        assertEquals("one", dao.observeRepresentatives().first().single().id)
+
+        dao.deleteByIds(listOf("one"))
+        assertEquals("two", dao.observeRepresentatives().first().single().id)
+    }
+
+    @Test
+    fun `先頭画像をリネームすると次の画像が代表になる`() = runTest {
+        val dao = db.imageItemDao()
+        val path = "Pictures/RenameFirst/"
+        dao.upsertAll(
+            listOf(
+                buildItem("one", "v", path, "1.jpg", 1L),
+                buildItem("two", "v", path, "2.jpg", 2L)
+            )
+        )
+        assertEquals("one", dao.observeRepresentatives().first().single().id)
+
+        // MediaStore の改名は同じ ID のまま displayName とソートキーが変わる
+        dao.upsertAll(listOf(buildItem("one", "v", path, "99.jpg", 100L)))
+        assertEquals("two", dao.observeRepresentatives().first().single().id)
+    }
+
+    @Test
+    fun `自然順キー未設定の既存行でも先頭画像を判定できる`() = runTest {
+        val dao = db.imageItemDao()
+        val path = "Pictures/Legacy/"
+        // 旧DBの移行直後を再現: naturalSortKey が空のまま。
+        // 空キー同士は sortName の辞書順になるため "10.jpg" が先頭になる
+        dao.upsertAll(
+            listOf(
+                buildItem("a", "v", path, "10.jpg", 1L, naturalKey = ""),
+                buildItem("b", "v", path, "2.jpg", 3L, naturalKey = "")
+            )
+        )
+        assertEquals("a", dao.observeRepresentatives().first().single().id)
+
+        // 自然順キーが入っていれば 2.jpg が先頭 (バックフィル後と同じ結果)
+        dao.upsertAll(
+            listOf(
+                buildItem("a", "v", path, "10.jpg", 1L),
+                buildItem("b", "v", path, "2.jpg", 3L)
+            )
+        )
+        assertEquals("b", dao.observeRepresentatives().first().single().id)
     }
 
     @Test

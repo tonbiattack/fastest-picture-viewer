@@ -17,6 +17,7 @@ import com.tonbiattack.fastestpictureviewer.data.FolderTagEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderTagNameRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
+import com.tonbiattack.fastestpictureviewer.data.NaturalSortKeyUpdate
 import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
 import com.tonbiattack.fastestpictureviewer.data.SyncStateEntity
@@ -76,6 +77,35 @@ class GalleryRepositoryImpl(
 
     override fun observeRepresentatives(): Flow<List<RepresentativeImageRow>> =
         imageDao.observeRepresentatives()
+
+    /**
+     * 自然順キーが未設定の旧DB行をバックグラウンドで埋める (Issue #49)。
+     *
+     * フォルダ一覧の代表サムネイルは自然順キーで先頭画像を決めるため、
+     * 移行直後に空キーが残っているとフォルダを開くまでサムネイルがずれる。
+     * 500 件ずつ・起動をブロックしない形で一度だけ埋める。
+     */
+    override suspend fun backfillMissingNaturalSortKeys() = withContext(Dispatchers.IO) {
+        try {
+            if (imageDao.countMissingNaturalSortKey() == 0L) return@withContext
+            while (true) {
+                val rows = imageDao.getMissingNaturalSortKey(BACKFILL_BATCH_SIZE)
+                if (rows.isEmpty()) break
+                val updates = rows.map { row ->
+                    NaturalSortKeyUpdate(
+                        id = row.id,
+                        naturalSortKey = NaturalSortKey.create(row.displayName)
+                    )
+                }
+                imageDao.updateNaturalSortKeys(updates)
+                // 進捗が無い (同一行を繰り返し取得する) 場合は無限ループを避けて抜ける
+                if (updates.isEmpty()) break
+            }
+        } catch (t: Exception) {
+            // バックフィル失敗はサムネイルの一時的なずれに留める。アプリの動作は継続する
+            Log.w("FPV-Perf", "naturalSortKey backfill failed", t)
+        }
+    }
 
     override fun observeImages(folderKey: String): Flow<List<ImageItem>> =
         imageDao.observeImages(folderKey).map { items ->
@@ -486,6 +516,9 @@ class GalleryRepositoryImpl(
 
     companion object {
         private const val DELETE_CHUNK_SIZE = 500
+
+        /** 自然順キーのバックフィルを 1 回に処理する件数 */
+        private const val BACKFILL_BATCH_SIZE = 500
 
         /** タグの一括付与を分割する件数 */
         private const val TAG_LINK_CHUNK_SIZE = 500

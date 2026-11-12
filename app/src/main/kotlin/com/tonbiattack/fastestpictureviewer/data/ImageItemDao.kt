@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -40,31 +41,39 @@ interface ImageItemDao {
     )
     fun observeFolderSummaries(): Flow<List<FolderSummaryRow>>
 
-    /** 各フォルダの代表サムネイル (フォルダ内で最新の画像 1 枚) を購読する */
     /**
-     * 各フォルダの代表サムネイル (フォルダ内で最新の画像) を購読する。
-     * 同じ更新日時の画像が複数ある場合は複数行返り得るが、Repository 側で 1 件に丸める。
+     * 各フォルダの代表サムネイル (ファイル名の自然順で先頭の画像) を購読する (Issue #49)。
+     *
+     * - 並び順は画像一覧と同じ「naturalSortKey → sortName → mediaId」の昇順で、
+     *   表示中のソート設定や更新日時、走査順に依存しない
+     * - 旧DBで naturalSortKey が未設定 ('') の行があっても、空キーを後回しにするので
+     *   一覧の遅延バックフィル前でも同じ判定になる
+     * - SQLite の「MIN/MAX が 1 つだけのとき、裸の列はその最小/最大行の値になる」仕様を使い、
+     *   自己結合なしの 1 スキャンで済ませる。合成キーは mediaId まで含むため必ず 1 行に定まる
      */
     @Query(
         """
-        SELECT i.id AS id, i.folderKey AS folderKey
-        FROM images AS i
-        INNER JOIN (
-            SELECT folderKey, MAX(dateModifiedSec) AS maxModified
-            FROM images
-            WHERE NOT EXISTS (
-                SELECT 1 FROM excluded_folders AS excluded
-                WHERE excluded.volumeName = images.volumeName
-                  AND (
-                      (excluded.relativePath = '' AND images.relativePath = '')
-                      OR (excluded.relativePath <> ''
-                          AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
-                  )
-            )
-            GROUP BY folderKey
-        ) AS latest
-          ON i.folderKey = latest.folderKey
-         AND i.dateModifiedSec = latest.maxModified
+        SELECT id AS id,
+               folderKey AS folderKey,
+               dateModifiedSec AS dateModifiedSec,
+               size AS size,
+               MIN(
+                   (CASE WHEN naturalSortKey = '' THEN '1' ELSE '0' END) ||
+                   naturalSortKey || char(1) ||
+                   sortName || char(1) ||
+                   printf('%020d', mediaId)
+               ) AS minOrderKey
+        FROM images INDEXED BY index_images_folderKey_naturalSortKey_sortName_mediaId
+        WHERE NOT EXISTS (
+            SELECT 1 FROM excluded_folders AS excluded
+            WHERE excluded.volumeName = images.volumeName
+              AND (
+                  (excluded.relativePath = '' AND images.relativePath = '')
+                  OR (excluded.relativePath <> ''
+                      AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
+              )
+        )
+        GROUP BY folderKey
         """
     )
     fun observeRepresentatives(): Flow<List<RepresentativeImageRow>>
@@ -138,6 +147,34 @@ interface ImageItemDao {
     /** 保存済み画像の総数 */
     @Query("SELECT COUNT(*) FROM images")
     suspend fun count(): Long
+
+    /** 自然順キーが未設定の行数 (旧DBからの移行直後の検出用) */
+    @Query("SELECT COUNT(*) FROM images WHERE naturalSortKey = ''")
+    suspend fun countMissingNaturalSortKey(): Long
+
+    /**
+     * 自然順キーが未設定の行を先頭から取得する。
+     * 旧DBの行をバックフィルして、フォルダ代表サムネイルを正しい先頭画像に揃える (Issue #49)。
+     */
+    @Query(
+        """
+        SELECT id AS id, displayName AS displayName
+        FROM images
+        WHERE naturalSortKey = ''
+        LIMIT :limit
+        """
+    )
+    suspend fun getMissingNaturalSortKey(limit: Int): List<MissingNaturalSortKeyRow>
+
+    /** 自然順キーだけを更新する (他の列・お気に入り・除外設定には触れない) */
+    @Query("UPDATE images SET naturalSortKey = :naturalSortKey WHERE id = :id")
+    suspend fun updateNaturalSortKey(id: String, naturalSortKey: String)
+
+    /** 複数行の自然順キー更新を 1 トランザクションにまとめる */
+    @Transaction
+    suspend fun updateNaturalSortKeys(updates: List<NaturalSortKeyUpdate>) {
+        updates.forEach { updateNaturalSortKey(it.id, it.naturalSortKey) }
+    }
 
     /** 差分・初期走査の結果を一括登録する (トランザクション内で呼ぶこと) */
     @Insert(onConflict = OnConflictStrategy.REPLACE)

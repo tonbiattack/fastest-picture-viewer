@@ -15,8 +15,12 @@ object GalleryImageCacheKeys {
     fun forItem(item: ImageItem): String =
         "${item.uri}@${item.dateModifiedSec}@${item.size}"
 
-    fun forFolder(uri: String, latestModifiedSec: Long): String =
-        "$uri@folder@$latestModifiedSec"
+    /**
+     * フォルダ代表サムネイルのキー。代表画像の URI と更新日時・サイズで作るため、
+     * 先頭画像が削除・リネームされて別の画像に変わると必ずキーも変わる (Issue #49)。
+     */
+    fun forFolder(uri: String, modifiedSec: Long, size: Long = 0L): String =
+        "$uri@folder@$modifiedSec@$size"
 }
 
 /** 一覧・ビューア用の画像リクエスト。サイズを指定すると先読みにも使える */
@@ -51,13 +55,14 @@ fun ImageItem.toImageRequest(
     heightPx = heightPx
 )
 
-/** フォルダ代表サムネイルのリクエスト */
+/** フォルダ代表サムネイルのリクエスト。代表画像の更新日時とサイズをキャッシュキーに含める */
 fun folderThumbnailRequest(
     context: Context,
     uri: String,
-    latestModifiedSec: Long
+    modifiedSec: Long,
+    size: Long = 0L
 ): ImageRequest = galleryImageRequest(
     context = context,
     uri = uri,
-    cacheKey = GalleryImageCacheKeys.forFolder(uri, latestModifiedSec)
+    cacheKey = GalleryImageCacheKeys.forFolder(uri, modifiedSec, size)
 )

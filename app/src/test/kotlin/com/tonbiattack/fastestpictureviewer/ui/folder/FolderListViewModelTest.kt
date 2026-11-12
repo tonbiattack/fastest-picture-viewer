@@ -216,6 +216,12 @@ class FolderListViewModelTest {
             tagsFlow.value = tagsFlow.value.filterNot { it.tagId == tagId }
             folderTagMap.values.forEach { it.remove(tagId) }
         }
+
+        var backfilled = false
+
+        override suspend fun backfillMissingNaturalSortKeys() {
+            backfilled = true
+        }
     }
 
     @Before
@@ -242,7 +248,9 @@ class FolderListViewModelTest {
 
     private fun representative(folderKey: String) = RepresentativeImageRow(
         id = "content-1",
-        folderKey = folderKey
+        folderKey = folderKey,
+        dateModifiedSec = 1234L,
+        size = 5678L
     )
 
     @Test
@@ -254,7 +262,7 @@ class FolderListViewModelTest {
 
         repo.foldersFlow.value = listOf(summary(FolderKeys.create("v", "Pictures/a/")))
         repo.representativesFlow.value =
-            listOf(RepresentativeImageRow(id = "content-1", folderKey = FolderKeys.create("v", "Pictures/a/")))
+            listOf(representative(FolderKeys.create("v", "Pictures/a/")))
         advanceUntilIdle()
 
         // 同期を開始して書き換えなしの一覧が保たれることを確認する (Issue #3)
@@ -271,6 +279,9 @@ class FolderListViewModelTest {
             midSync.folders.first().folderKey
         )
         assertEquals("content-1", midSync.folders.first().representativeImageUri)
+        // サムネイルキャッシュに使う代表画像自身の日時・サイズも UI 状態へ渡す (Issue #49)
+        assertEquals(1234L, midSync.folders.first().representativeModifiedSec)
+        assertEquals(5678L, midSync.folders.first().representativeSize)
     }
 
     @Test

@@ -25,6 +25,10 @@ class AppViewModel(private val repository: GalleryRepository) : ViewModel() {
     fun onAccessLevelChanged(level: MediaAccessLevel) {
         if (level == MediaAccessLevel.Denied) return
         requestSync(SyncMode.AUTO, canDelete = level == MediaAccessLevel.Full)
+        // 旧DBの自然順キー不足を埋め、フォルダ代表サムネイルを正しい先頭画像に揃える (Issue #49)
+        viewModelScope.launch {
+            repository.backfillMissingNaturalSortKeys()
+        }
     }
 
     /**
