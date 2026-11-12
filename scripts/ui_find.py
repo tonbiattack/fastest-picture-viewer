@@ -2,7 +2,10 @@ import re
 import sys
 
 # uiautomator XML から、指定した文字列を含む要素の座標を出力する
-# 使い方: python -X utf8 scripts/ui_find.py captures/x.xml "タグ"
+# 使い方: python -X utf8 scripts/ui_find.py captures/ui.xml "タグ"
+# 出力: 表示テキスト <TAB> content-desc <TAB> bounds <TAB> 中央座標 (x,y)
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 path = sys.argv[1]
 query = sys.argv[2] if len(sys.argv) > 2 else None
 
