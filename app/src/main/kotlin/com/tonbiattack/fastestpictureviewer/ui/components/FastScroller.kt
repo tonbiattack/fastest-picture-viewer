@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +43,10 @@ import kotlin.math.roundToInt
  *
  * つまみをドラッグすると、一覧の先頭〜末尾のインデックスへ直接ジャンプする。
  * LazyGridState を操作するだけなので、一覧の再取得や再走査は発生しない。
+ *
+ * スクロール位置は `layoutInfo` が `@FrequentlyChangingValue` のため、
+ * コンポーズ中に直接読むと毎フレーム再コンポーズされる。必要な値だけを
+ * [derivedStateOf] で購読し、つまみの位置・高さが変わるときだけ再描画する (Issue #61)。
  */
 @Composable
 fun FastScroller(
@@ -51,9 +57,26 @@ fun FastScroller(
     thumbWidth: Dp = 8.dp,
     thumbMinHeight: Dp = 40.dp
 ) {
-    val layoutInfo = state.layoutInfo
-    val totalItems = layoutInfo.totalItemsCount
-    val visibleItems = layoutInfo.visibleItemsInfo.size
+    // layoutInfo の読み取りを 1 か所にまとめる。値が変わらない間は再コンポーズされない
+    val metrics by remember(state) {
+        derivedStateOf {
+            val info = state.layoutInfo
+            val visible = info.visibleItemsInfo
+            FastScrollerMetrics(
+                totalItems = info.totalItemsCount,
+                visibleItems = visible.size,
+                firstVisibleIndex = visible.firstOrNull()?.index ?: state.firstVisibleItemIndex
+            )
+        }
+    }
+
+    // スクロール中かどうかは頻繁に変わらないため別に購読する
+    val isScrollInProgress by remember(state) {
+        derivedStateOf { state.isScrollInProgress }
+    }
+
+    val totalItems = metrics.totalItems
+    val visibleItems = metrics.visibleItems
 
     // 画面内に収まる一覧では表示しない
     if (totalItems <= 0 || totalItems <= visibleItems || totalItems < minItemsToShow) return
@@ -65,15 +88,14 @@ fun FastScroller(
     var dragging by remember { mutableStateOf(false) }
     val scrollJob = remember { mutableStateOf<Job?>(null) }
 
-    val firstVisibleIndex = layoutInfo.visibleItemsInfo.firstOrNull()?.index
-        ?: state.firstVisibleItemIndex
+    val firstVisibleIndex = metrics.firstVisibleIndex
     val progress = FastScrollMath.progress(firstVisibleIndex, totalItems)
     val thumbFraction = FastScrollMath.thumbFraction(visibleItems, totalItems)
 
     val thumbMinHeightPx = with(density) { thumbMinHeight.toPx() }
     val thumbHeightPx = max(thumbMinHeightPx, trackHeightPx * thumbFraction)
     val thumbOffsetPx = (trackHeightPx - thumbHeightPx).coerceAtLeast(0f) * progress
-    val active = dragging || state.isScrollInProgress
+    val active = dragging || isScrollInProgress
     val thumbAlpha = if (active) 1f else 0.35f
 
     fun jumpTo(y: Float) {
@@ -140,9 +162,18 @@ fun FastScroller(
     }
 }
 
+/**
+ * FastScroller が再描画に使う値だけをまとめたもの。
+ * `layoutInfo` を直接コンポーズ中に読まないよう `derivedStateOf` の結果として使う (Issue #61)。
+ */
+internal data class FastScrollerMetrics(
+    val totalItems: Int,
+    val visibleItems: Int,
+    val firstVisibleIndex: Int
+)
+
 /** FastScroller の位置計算 (純粋ロジック) */
 object FastScrollMath {
-
     /** ドラッグ位置 (0..1) からスクロール先のアイテムインデックスを求める */
     fun targetIndex(fraction: Float, totalItems: Int): Int {
         if (totalItems <= 0) return 0
