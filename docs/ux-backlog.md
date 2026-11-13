@@ -13,6 +13,7 @@
 | [#39](https://github.com/tonbiattack/fastest-picture-viewer/issues/39) | 画像グリッドのお気に入りフィルタ・ファイル名検索 | P1 | 読み込み済みリストをメモリ上で絞る。MediaStore再走査なし |
 | [#40](https://github.com/tonbiattack/fastest-picture-viewer/issues/40) | 画像の共有・情報シート | P2 | 既存メタデータを使用。フルサイズ再読み込みなし |
 | [#41](https://github.com/tonbiattack/fastest-picture-viewer/issues/41) | 起動時の「前回の続き」 | P2 | 1件だけ保存。起動時に全件走査しない。自動オープンはせずカード表示 |
+| [#53](https://github.com/tonbiattack/fastest-picture-viewer/issues/53) | 「前回の続き」カードの表示/非表示設定 | P2 | 既存の設定1キーを追加するだけ。非表示でも履歴の記録は継続 |
 | [#44](https://github.com/tonbiattack/fastest-picture-viewer/issues/44) | 縦横で別々のグリッド列数保存 | P1 | SharedPreferences の読み書きのみ。回転時に適用値を切り替えるだけ |
 | [#45](https://github.com/tonbiattack/fastest-picture-viewer/issues/45) | 写真一覧のピンチによる一時列数変更 | P1 | 保存しない一時値。指を離したら戻す。1本指操作は消費しない |
 | [#46](https://github.com/tonbiattack/fastest-picture-viewer/issues/46) | フォルダへのタグ付与・一括付与・タグ絞り込み | P1 | 既存一覧はメモリ上で絞る。付与は NonCancellable のバックグラウンド書き込み |

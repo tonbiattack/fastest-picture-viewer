@@ -4,6 +4,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +49,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -68,6 +72,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -153,8 +158,10 @@ fun FolderListScreen(
         DisplaySettingsDialog(
             columnCount = state.columnCount,
             sortMode = state.sortMode,
+            showResumeCard = state.showResumeCard,
             onColumnCountChange = viewModel::setColumnCount,
             onSortModeChange = viewModel::setSortMode,
+            onShowResumeCardChange = viewModel::setShowResumeCard,
             onDismiss = { showDisplaySettings = false }
         )
     }
@@ -517,15 +524,18 @@ private fun SearchField(
 private fun DisplaySettingsDialog(
     columnCount: Int,
     sortMode: FolderSortMode,
+    showResumeCard: Boolean,
     onColumnCountChange: (Int) -> Unit,
     onSortModeChange: (FolderSortMode) -> Unit,
+    onShowResumeCardChange: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("表示設定") },
         text = {
-            Column {
+            // 端末の画面が小さい場合でも設定項目が切れないよう縦スクロール可能にする (Issue #53)
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text("フォルダ一覧の列数", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -551,6 +561,34 @@ private fun DisplaySettingsDialog(
                         selected = sortMode == FolderSortMode.RECENT,
                         onClick = { onSortModeChange(FolderSortMode.RECENT) },
                         label = { Text("最近閲覧順") }
+                    )
+                }
+
+                // 前回の続きカードの表示切り替え (Issue #53)
+                // スイッチだけでなく行全体をタップできるようにして押しやすくする
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = showResumeCard,
+                            role = Role.Switch,
+                            onValueChange = onShowResumeCardChange
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("「前回の続き」を表示", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "最後に見たフォルダ・画像のカードを一覧の上に表示します。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = showResumeCard,
+                        // 行側で切り替えるため、スイッチ自身は表示専用にする
+                        onCheckedChange = null
                     )
                 }
             }

@@ -124,7 +124,10 @@ data class FolderListUiState(
     val tagFilter: TagFilterState = TagFilterState(),
 
     /** 選択可能なタグ一覧 (付与件数付き) */
-    val allTags: List<TagWithCount> = emptyList()
+    val allTags: List<TagWithCount> = emptyList(),
+
+    /** 「前回の続き」カードを表示するか (Issue #53) */
+    val showResumeCard: Boolean = true
 ) {
     /** 同期中でまだ 1 件も無い場合に初回スキャン表示を出す */
     val showInitialScanProgress: Boolean get() = isSyncing && !hasFolders
@@ -167,7 +170,8 @@ private data class ScrollRestore(
 private data class UiContext(
     val filter: FolderFilter,
     val restore: ScrollRestore,
-    val resume: LastViewedFolder?
+    val resume: LastViewedFolder?,
+    val showResumeCard: Boolean
 ) {
     val isFiltered: Boolean get() = filter.isFiltered
 }
@@ -265,9 +269,15 @@ class FolderListViewModel(
                         filterFlow,
                         scrollRestore,
                         lastViewedStore.lastViewed,
-                        tagsFlow
-                    ) { filter, restore, resume, allTags ->
-                        UiContext(filter = filter, restore = restore, resume = resume) to allTags
+                        tagsFlow,
+                        viewSettings.showResumeCard
+                    ) { filter, restore, resume, allTags, showResumeCard ->
+                        UiContext(
+                            filter = filter,
+                            restore = restore,
+                            resume = resume,
+                            showResumeCard = showResumeCard
+                        ) to allTags
                     }
                 ) { data, status, columns, sortMode, contextAndTags ->
                     val (context, allTags) = contextAndTags
@@ -303,7 +313,7 @@ class FolderListViewModel(
                         matchesQuery && matchesFavorite && matchesTag
                     }
 
-                    val resumeFolder = if (context.isFiltered) {
+                    val resumeFolder = if (context.isFiltered || !context.showResumeCard) {
                         null
                     } else {
                         context.resume?.let { resume ->
@@ -332,13 +342,14 @@ class FolderListViewModel(
                         isScrollRestored = context.restore.loaded,
                         allFolderKeys = sortedFolders.map { it.folderKey },
                         resumeFolder = resumeFolder,
-                        resumeItemId = context.resume?.itemId,
+                        resumeItemId = if (context.showResumeCard) context.resume?.itemId else null,
                         resumeItemIndex = context.resume?.itemIndex ?: 0,
                         isSyncing = status.isRunning,
                         isInitialScan = status.isInitialScan,
                         errorMessage = status.errorMessage,
                         tagFilter = context.filter.tagFilter,
-                        allTags = allTags
+                        allTags = allTags,
+                        showResumeCard = context.showResumeCard
                     )
                 }
             }
@@ -472,6 +483,11 @@ class FolderListViewModel(
     /** 列数を変更して永続化する */
     fun setColumnCount(count: Int) {
         viewSettings.setColumnCount(count)
+    }
+
+    /** 「前回の続き」カードの表示を切り替えて永続化する (Issue #53) */
+    fun setShowResumeCard(show: Boolean) {
+        viewSettings.setShowResumeCard(show)
     }
 
     /** 並び順を変更して永続化する。切替前に現在の位置を保存する */

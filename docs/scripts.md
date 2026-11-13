@@ -14,6 +14,8 @@
 | `ui.ps1` | 実機の UI 要素検索・タップ・長押し（uiautomator 経由） |
 | `ui_dump.py` | 取得した UI XML の要素一覧（UTF-8 表示用） |
 | `ui_find.py` | 取得した UI XML から指定文字列の要素と中央座標を表示 |
+| `ui_switches.py` | UI XML から `checkable` な要素の `checked` 状態を一覧表示 |
+| `apk_has_string.py` | APK 内の dex に指定文字列が含まれるか確認（ビルド反映の確認用） |
 
 ## 実機 UI 操作（ui.ps1）
 

@@ -55,7 +55,8 @@ class FolderListViewModelTest {
     /** テスト用の列数設定 */
     private class FakeViewSettings(
         initial: Int = 2,
-        initialSortMode: FolderSortMode = FolderSortMode.LATEST
+        initialSortMode: FolderSortMode = FolderSortMode.LATEST,
+        initialShowResumeCard: Boolean = true
     ) : FolderViewSettings {
         private val _columnCount = MutableStateFlow(initial)
         override val columnCount: StateFlow<Int> = _columnCount
@@ -63,12 +64,19 @@ class FolderListViewModelTest {
         private val _sortMode = MutableStateFlow(initialSortMode)
         override val sortMode: StateFlow<FolderSortMode> = _sortMode
 
+        private val _showResumeCard = MutableStateFlow(initialShowResumeCard)
+        override val showResumeCard: StateFlow<Boolean> = _showResumeCard
+
         override fun setColumnCount(count: Int) {
             _columnCount.value = count.coerceIn(1, 4)
         }
 
         override fun setSortMode(mode: FolderSortMode) {
             _sortMode.value = mode
+        }
+
+        override fun setShowResumeCard(show: Boolean) {
+            _showResumeCard.value = show
         }
     }
 
@@ -606,7 +614,8 @@ class FolderListViewModelTest {
     }
 
     @Test
-    fun `前回の続きを状態に反映しクリアできる`() = runTest {        val repo = FakeRepository()
+    fun `前回の続きを状態に反映しクリアできる`() = runTest {
+        val repo = FakeRepository()
         val key = FolderKeys.create("v", "Pictures/Resume/")
         repo.foldersFlow.value = listOf(summary(key))
         val store = FakeLastViewedStore(
@@ -629,6 +638,72 @@ class FolderListViewModelTest {
         advanceUntilIdle()
         assertNull(vm.uiState.value.resumeFolder)
         assertNull(vm.uiState.value.resumeItemId)
+    }
+
+    @Test
+    fun `前回の続きカードを非表示にできる`() = runTest {
+        val repo = FakeRepository()
+        val key = FolderKeys.create("v", "Pictures/Resume/")
+        repo.foldersFlow.value = listOf(summary(key))
+        val store = FakeLastViewedStore(
+            LastViewedFolder(
+                folderKey = key,
+                itemId = "content://image/42",
+                itemIndex = 3,
+                updatedAtSec = 1L
+            )
+        )
+        val settings = FakeViewSettings(initialShowResumeCard = true)
+        val vm = FolderListViewModel(repo, settings, store)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        // 既定は表示
+        assertTrue(vm.uiState.value.showResumeCard)
+        assertEquals(key, vm.uiState.value.resumeFolder?.folderKey)
+
+        vm.setShowResumeCard(false)
+        advanceUntilIdle()
+
+        val hidden = vm.uiState.value
+        assertFalse(hidden.showResumeCard)
+        assertNull("非表示時はカードのフォルダを渡さない", hidden.resumeFolder)
+        assertNull("非表示時はカードの画像を渡さない", hidden.resumeItemId)
+        // 一覧そのものは変わらない
+        assertEquals(1, hidden.folders.size)
+        assertFalse(hidden.isFiltered)
+        // 設定オブジェクトにも反映される (永続化される値)
+        assertFalse(settings.showResumeCard.value)
+
+        // 履歴は消さずに残すので、再表示すると同じフォルダ・画像が出る
+        vm.setShowResumeCard(true)
+        advanceUntilIdle()
+        val shown = vm.uiState.value
+        assertTrue(shown.showResumeCard)
+        assertEquals(key, shown.resumeFolder?.folderKey)
+        assertEquals("content://image/42", shown.resumeItemId)
+        assertEquals(3, shown.resumeItemIndex)
+    }
+
+    @Test
+    fun `前回の続き非表示でも検索やタグ絞り込みは動く`() = runTest {
+        val repo = FakeRepository()
+        val a = FolderKeys.create("v", "Pictures/TravelA/")
+        val b = FolderKeys.create("v", "Pictures/TravelB/")
+        repo.foldersFlow.value = listOf(summary(a), summary(b))
+        repo.folderTagNamesFlow.value = listOf(FolderTagNameRow(a, 1L, "旅行"))
+        val vm = FolderListViewModel(repo, FakeViewSettings(initialShowResumeCard = false), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.onSearchQueryChange("TravelA")
+        advanceUntilIdle()
+        assertEquals(listOf(a), vm.uiState.value.folders.map { it.folderKey })
+
+        vm.clearSearch()
+        vm.toggleTagFilter(1L)
+        advanceUntilIdle()
+        assertEquals(listOf(a), vm.uiState.value.folders.map { it.folderKey })
     }
 
     @Test
