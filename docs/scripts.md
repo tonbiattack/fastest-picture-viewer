@@ -11,6 +11,7 @@
 | `check-env.ps1` | JDK・Android SDK・adb の確認 |
 | `build-and-test.ps1` | 単体テスト + debug APK 生成 |
 | `device.ps1` | 端末情報・APK 導入・起動計測・スクリーンショット・ログ |
+| `transfer-to-sd.ps1` | PC のフォルダを SD カードへ転送（zip / 内部経由 / 直接） |
 | `ui.ps1` | 実機の UI 要素検索・タップ・長押し（uiautomator 経由） |
 | `ui_dump.py` | 取得した UI XML の要素一覧（UTF-8 表示用） |
 | `ui_find.py` | 取得した UI XML から指定文字列の要素と中央座標を表示 |
@@ -67,3 +68,37 @@ python -X utf8 scripts\ui_find.py captures\u.xml "タグ"
 - 署名が異なる APK を入れると `INSTALL_FAILED_UPDATE_INCOMPATIBLE` になる。
   その場合はアンインストールが必要で、アプリ内データは失われる（スクリプトでは実施しない）。
 - 詳しい手順とトラブルシューティングは [APK の導入・更新手順](install-and-update.md) を参照。
+
+## PC から SD カードへの転送（transfer-to-sd.ps1）
+
+エクスプローラー（MTP）で SD カードへ直接コピーすると、転送開始まで待たされ、
+途中で失敗することがある。`transfer-to-sd.ps1` は ADB で転送し、検証まで行う。
+
+```powershell
+# 既定は zip 方式（小さいファイルが多いほど有利）
+powershell -ExecutionPolicy Bypass -File scripts\transfer-to-sd.ps1 `
+  -Source D:\pics -Destination Pictures\20261113
+
+# 事前確認のみ（端末を書き換えない）
+powershell -ExecutionPolicy Bypass -File scripts\transfer-to-sd.ps1 `
+  -Source D:\pics -Destination Pictures\20261113 -DryRun
+
+# MD5 まで検証し、工程ごとの所要時間を CSV に残す
+powershell -ExecutionPolicy Bypass -File scripts\transfer-to-sd.ps1 `
+  -Source D:\pics -Destination Pictures\20261113 -Verify Hash -OutputPath captures\transfer.csv
+```
+
+| 方式 | 指定 | 向いている場面 |
+| --- | --- | --- |
+| Zip（既定） | `-Mode Zip` | 小さいファイルが多い（写真・ページ画像など）。ASCII 名のみ |
+| Staged | `-Mode Staged` | zip を作りたくない／圧縮済みの大ファイルが多い／日本語ファイル名を含む |
+| Direct | `-Mode Direct` | 数 MB 以上のファイルが少しだけ |
+
+- **日本語などの非 ASCII 名を含むと、zip 方式は自動的に Staged へ切り替わる**
+  （端末の `unzip` が zip 内の非 ASCII 名を復元できず `Operation not permitted` になるため）。
+
+- `-Destination` は SD カード直下からの相対パス。絶対パスと `..` は拒否する。
+- 検証に成功したときだけ、内部のステージング（`/sdcard/Download/PictobiTransfer`）を削除する。
+- 端末の写真・アプリデータは削除しない。失敗時は終了コード 3。
+- 転送後はアプリの**手動更新**を実行する（MediaStore の反映が遅れるため）。
+- 実測値と MTP 側の対策は [PC から SD カードへ転送する手順](sd-transfer.md) を参照。
