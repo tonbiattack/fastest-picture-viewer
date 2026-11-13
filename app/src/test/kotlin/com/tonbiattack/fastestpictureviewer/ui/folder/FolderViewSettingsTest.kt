@@ -5,6 +5,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -64,5 +66,38 @@ class FolderViewSettingsTest {
 
         val second = SharedPreferencesFolderViewSettings(context)
         assertEquals(FolderSortMode.RECENT, second.sortMode.value)
+    }
+
+    @Test
+    fun `前回の続きカードは既定で表示する`() {
+        val settings = SharedPreferencesFolderViewSettings(context)
+        assertTrue(settings.showResumeCard.value)
+    }
+
+    @Test
+    fun `前回の続きカードの表示設定は別インスタンスでも維持される`() {
+        val first = SharedPreferencesFolderViewSettings(context)
+        first.setShowResumeCard(false)
+        assertFalse(first.showResumeCard.value)
+
+        // アプリ再起動相当
+        val second = SharedPreferencesFolderViewSettings(context)
+        assertFalse(second.showResumeCard.value)
+
+        second.setShowResumeCard(true)
+        val third = SharedPreferencesFolderViewSettings(context)
+        assertTrue(third.showResumeCard.value)
+    }
+
+    @Test
+    fun `前回の続きカードの設定は列数や並び順に影響しない`() {
+        val settings = SharedPreferencesFolderViewSettings(context)
+        settings.setColumnCount(4)
+        settings.setSortMode(FolderSortMode.RECENT)
+        settings.setShowResumeCard(false)
+
+        assertEquals(4, settings.columnCount.value)
+        assertEquals(FolderSortMode.RECENT, settings.sortMode.value)
+        assertFalse(settings.showResumeCard.value)
     }
 }

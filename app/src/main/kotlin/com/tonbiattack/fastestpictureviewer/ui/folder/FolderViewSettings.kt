@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * フォルダ一覧の表示設定。
- * 列数と並び順はアプリ再起動後も維持する。
+ * 列数・並び順・「前回の続き」カードの表示はアプリ再起動後も維持する。
  */
 interface FolderViewSettings {
 
@@ -18,11 +18,17 @@ interface FolderViewSettings {
     /** 現在の並び順 */
     val sortMode: StateFlow<FolderSortMode>
 
+    /** 「前回の続き」カードを表示するか (Issue #53)。既定は true */
+    val showResumeCard: StateFlow<Boolean>
+
     /** 列数を保存して即時反映する */
     fun setColumnCount(count: Int)
 
     /** 並び順を保存して即時反映する */
     fun setSortMode(mode: FolderSortMode)
+
+    /** 「前回の続き」カードの表示を保存して即時反映する */
+    fun setShowResumeCard(show: Boolean)
 }
 
 /** SharedPreferences による実装 */
@@ -43,6 +49,11 @@ class SharedPreferencesFolderViewSettings(context: Context) : FolderViewSettings
     )
     override val sortMode: StateFlow<FolderSortMode> = _sortMode.asStateFlow()
 
+    private val _showResumeCard = MutableStateFlow(
+        prefs.getBoolean(KEY_SHOW_RESUME_CARD, DEFAULT_SHOW_RESUME_CARD)
+    )
+    override val showResumeCard: StateFlow<Boolean> = _showResumeCard.asStateFlow()
+
     override fun setColumnCount(count: Int) {
         val clamped = count.coerceIn(MIN_COLUMN_COUNT, MAX_COLUMN_COUNT)
         prefs.edit().putInt(KEY_COLUMN_COUNT, clamped).apply()
@@ -54,13 +65,22 @@ class SharedPreferencesFolderViewSettings(context: Context) : FolderViewSettings
         _sortMode.value = mode
     }
 
+    override fun setShowResumeCard(show: Boolean) {
+        prefs.edit().putBoolean(KEY_SHOW_RESUME_CARD, show).apply()
+        _showResumeCard.value = show
+    }
+
     companion object {
         const val DEFAULT_COLUMN_COUNT = 2
         const val MIN_COLUMN_COUNT = 1
         const val MAX_COLUMN_COUNT = 4
 
+        /** 既存ユーザーの見た目を変えないよう、既定は表示する */
+        const val DEFAULT_SHOW_RESUME_CARD = true
+
         private const val PREFS_NAME = "folder_view_settings"
         private const val KEY_COLUMN_COUNT = "column_count"
         private const val KEY_SORT_MODE = "sort_mode"
+        private const val KEY_SHOW_RESUME_CARD = "show_resume_card"
     }
 }
