@@ -51,3 +51,17 @@ python -X utf8 scripts\ui_find.py captures\u.xml "タグ"
 
 このテストは端末にテスト用 APK をインストールして実行するだけで、
 アプリのデータ（写真・Room・設定）は削除しない。
+
+## APK の導入・更新（device.ps1）
+
+| 目的 | コマンド |
+| --- | --- |
+| 端末・導入状況の確認 | `device.ps1 -Action Info`（バージョン、debug/release、署名、初回/更新日時） |
+| debug APK を上書き | `device.ps1 -Action Install` |
+| 署名済み release APK を上書き | `device.ps1 -Action Install -Release` |
+| 任意の APK を指定 | `device.ps1 -Action Install -Apk <path>` |
+
+- 未署名の `app-release-unsigned.apk` を指定すると、導入前にエラーで止める。
+- 署名が異なる APK を入れると `INSTALL_FAILED_UPDATE_INCOMPATIBLE` になる。
+  その場合はアンインストールが必要で、アプリ内データは失われる（スクリプトでは実施しない）。
+- 詳しい手順とトラブルシューティングは [APK の導入・更新手順](install-and-update.md) を参照。
