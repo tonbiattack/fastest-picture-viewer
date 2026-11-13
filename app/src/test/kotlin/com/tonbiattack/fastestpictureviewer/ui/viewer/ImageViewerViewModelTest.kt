@@ -32,6 +32,9 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -208,5 +211,37 @@ class ImageViewerViewModelTest {
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
 
         assertEquals(4, vm.uiState.value.initialIndex)
+    }
+
+    @Test
+    fun `ランダムジャンプ先は現在の画像と異なる有効なインデックスになる`() = runTest {
+        val vm = ImageViewerViewModel(FakeRepository(images(8)), SavedStateHandle(mapOf("folderKey" to "v:Pictures/")))
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        repeat(50) {
+            val target = vm.randomJumpTarget(currentIndex = 3)
+            assertNotNull(target)
+            assertTrue("range: $target", target!! in 0 until 8)
+            assertNotEquals(3, target)
+        }
+    }
+
+    @Test
+    fun `画像が1枚ならランダムジャンプ先は同じ画像`() = runTest {
+        val vm = ImageViewerViewModel(FakeRepository(images(1)), SavedStateHandle(mapOf("folderKey" to "v:Pictures/")))
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(0, vm.randomJumpTarget(currentIndex = 0))
+    }
+
+    @Test
+    fun `画像が空ならランダムジャンプ先はnull`() = runTest {
+        val vm = ImageViewerViewModel(FakeRepository(emptyList()), SavedStateHandle(mapOf("folderKey" to "v:Pictures/")))
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertNull(vm.randomJumpTarget(currentIndex = 0))
     }
 }
