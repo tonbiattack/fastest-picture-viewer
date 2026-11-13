@@ -1,6 +1,7 @@
 package com.tonbiattack.fastestpictureviewer.ui.grid
 
 import android.content.Context
+import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,19 +64,19 @@ class SharedPreferencesImageGridViewSettings(context: Context) : ImageGridViewSe
 
     init {
         // 移行結果を書き戻し、次回起動で旧キーに依存しないようにする
-        prefs.edit()
-            .putInt(KEY_PORTRAIT_COLUMN_COUNT, _portraitColumnCount.value)
-            .putInt(KEY_LANDSCAPE_COLUMN_COUNT, _landscapeColumnCount.value)
-            .apply()
+        prefs.edit {
+            putInt(KEY_PORTRAIT_COLUMN_COUNT, _portraitColumnCount.value)
+            putInt(KEY_LANDSCAPE_COLUMN_COUNT, _landscapeColumnCount.value)
+        }
     }
 
     override fun setColumnCount(count: Int) {
         val clamped = count.coerceIn(MIN_COLUMN_COUNT, MAX_COLUMN_COUNT)
         if (_isLandscape.value) {
-            prefs.edit().putInt(KEY_LANDSCAPE_COLUMN_COUNT, clamped).apply()
+            prefs.edit { putInt(KEY_LANDSCAPE_COLUMN_COUNT, clamped) }
             _landscapeColumnCount.value = clamped
         } else {
-            prefs.edit().putInt(KEY_PORTRAIT_COLUMN_COUNT, clamped).apply()
+            prefs.edit { putInt(KEY_PORTRAIT_COLUMN_COUNT, clamped) }
             _portraitColumnCount.value = clamped
         }
         _columnCount.value = clamped

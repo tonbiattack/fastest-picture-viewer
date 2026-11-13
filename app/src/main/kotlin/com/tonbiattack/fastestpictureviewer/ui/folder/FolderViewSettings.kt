@@ -1,6 +1,7 @@
 package com.tonbiattack.fastestpictureviewer.ui.folder
 
 import android.content.Context
+import androidx.core.content.edit
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,17 +57,17 @@ class SharedPreferencesFolderViewSettings(context: Context) : FolderViewSettings
 
     override fun setColumnCount(count: Int) {
         val clamped = count.coerceIn(MIN_COLUMN_COUNT, MAX_COLUMN_COUNT)
-        prefs.edit().putInt(KEY_COLUMN_COUNT, clamped).apply()
+        prefs.edit { putInt(KEY_COLUMN_COUNT, clamped) }
         _columnCount.value = clamped
     }
 
     override fun setSortMode(mode: FolderSortMode) {
-        prefs.edit().putString(KEY_SORT_MODE, mode.name).apply()
+        prefs.edit { putString(KEY_SORT_MODE, mode.name) }
         _sortMode.value = mode
     }
 
     override fun setShowResumeCard(show: Boolean) {
-        prefs.edit().putBoolean(KEY_SHOW_RESUME_CARD, show).apply()
+        prefs.edit { putBoolean(KEY_SHOW_RESUME_CARD, show) }
         _showResumeCard.value = show
     }
 

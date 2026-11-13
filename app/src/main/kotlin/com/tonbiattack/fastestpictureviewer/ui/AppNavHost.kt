@@ -73,8 +73,8 @@ fun AppNavHost(
     accessLevel: MediaAccessLevel,
     onRequestPermission: () -> Unit,
     onManualRefresh: () -> Unit,
-    navController: NavHostController = rememberNavController(),
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    navController: NavHostController = rememberNavController()
 ) {
     val factory = container.viewModelFactory
     val scope = rememberCoroutineScope()

@@ -47,21 +47,23 @@ object MediaPermissions {
 
     /** 現在のアクセスレベルを判定する */
     fun accessLevel(context: Context): MediaAccessLevel {
-        val full = isGranted(context, Manifest.permission.READ_MEDIA_IMAGES)
+        // READ_MEDIA_IMAGES は API 33 以降の権限。古い OS で参照しないよう分岐する
+        val modernGranted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            isGranted(context, Manifest.permission.READ_MEDIA_IMAGES)
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             // Android 14 以降は部分アクセス (READ_MEDIA_VISUAL_USER_SELECTED) もあり得る
             val partial = isGranted(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
             return when {
-                full -> MediaAccessLevel.Full
+                modernGranted -> MediaAccessLevel.Full
                 partial -> MediaAccessLevel.Partial
                 else -> MediaAccessLevel.Denied
             }
         }
         val legacy = isGranted(context, Manifest.permission.READ_EXTERNAL_STORAGE)
         return when {
-            // Android 10〜12 は READ_MEDIA_IMAGES / READ_EXTERNAL_STORAGE のどちらでも良い
-            full || (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU && legacy) ->
-                MediaAccessLevel.Full
+            // Android 10〜12 は READ_EXTERNAL_STORAGE、13 以降は READ_MEDIA_IMAGES
+            modernGranted || legacy -> MediaAccessLevel.Full
             else -> MediaAccessLevel.Denied
         }
     }
