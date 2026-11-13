@@ -85,6 +85,7 @@
 - [Windows 11 ビルド・テスト環境手順](docs/build-environment.md)
 - [実機（OPPO Reno13 A）検証手順](docs/device-verification.md)
 - [ビルド・テスト・実機操作のスクリプト](docs/scripts.md)
+- [PC から SD カードへ転送する手順](docs/sd-transfer.md)
 - [UX改善バックログ（採用・保留・不採用）](docs/ux-backlog.md)
 - [署名鍵の運用方針](docs/signing-policy.md)
 - [実装指示の参考資料](docs/gpt/spec.md)
