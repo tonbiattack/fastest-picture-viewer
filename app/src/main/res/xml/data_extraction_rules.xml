@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup / 端末間転送（API 31 以降）の対象ルール (Issue #63)。
+
+  実機の Room DB は約 295MB あり、バックアップ上限を超えるため除外する。
+  それ以外（列数・並び順・前回の続きなどの SharedPreferences）は既定どおり残す。
+  タグ・お気に入りは Room にあるため、端末をまたぐと引き継がれない。
+  cacheDir（サムネイル）は元々対象外。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" path="fastest-picture-viewer.db" />
+        <exclude domain="database" path="fastest-picture-viewer.db-wal" />
+        <exclude domain="database" path="fastest-picture-viewer.db-shm" />
+    </cloud-backup>
+
+    <!-- 端末間の直接転送でも同じ内容にする -->
+    <device-transfer>
+        <exclude domain="database" path="fastest-picture-viewer.db" />
+        <exclude domain="database" path="fastest-picture-viewer.db-wal" />
+        <exclude domain="database" path="fastest-picture-viewer.db-shm" />
+    </device-transfer>
+</data-extraction-rules>

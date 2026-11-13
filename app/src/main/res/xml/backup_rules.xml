@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup（API 30 以前）の対象ルール (Issue #63)。
+
+  実機の Room DB は約 295MB あり、Auto Backup の上限（25MB）を超えるため
+  毎回失敗する。巨大な DB だけを除外し、それ以外（SharedPreferences の
+  設定など）は既定どおりバックアップする。
+  タグ・お気に入りは Room にあるため、端末をまたぐと引き継がれない。
+  cacheDir（サムネイル）は元々 Auto Backup の対象外。
+-->
+<full-backup-content>
+    <!-- 画像メタ情報の Room DB（-wal / -shm も除外する） -->
+    <exclude domain="database" path="fastest-picture-viewer.db" />
+    <exclude domain="database" path="fastest-picture-viewer.db-wal" />
+    <exclude domain="database" path="fastest-picture-viewer.db-shm" />
+</full-backup-content>
