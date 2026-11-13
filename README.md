@@ -81,6 +81,7 @@
 ## 開発ドキュメント
 
 - [仕様書（最新版）](docs/specification.md)
+- [APK の導入・更新手順](docs/install-and-update.md)
 - [Windows 11 ビルド・テスト環境手順](docs/build-environment.md)
 - [実機（OPPO Reno13 A）検証手順](docs/device-verification.md)
 - [ビルド・テスト・実機操作のスクリプト](docs/scripts.md)
@@ -193,20 +194,52 @@ powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Devices
 
 Android SDK (compileSdk 36) と JDK 17 以上が必要です。SDK の場所が標準でない場合は `local.properties` に `sdk.dir` を設定してください。詳細は [Windows 11 ビルド・テスト環境手順](docs/build-environment.md) を参照してください。
 
-## OPPO Reno13 Aへの導入・更新（Windows PowerShell）
+## APKの導入・更新（Windows PowerShell）
 
 `main` を最新化し、変更は `feature/<topic>` / `fix/<topic>` の短命ブランチで作業して PR 経由で main にマージする。
+
+### データを残して更新する（同じ署名のAPKが入っている場合）
 
 ```powershell
 git switch main
 git pull --ff-only origin main
-git switch -c feature/<topic>
 .\gradlew.bat :app:testDebugUnitTest
 .\gradlew.bat :app:assembleDebug
 adb devices
 adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 ```
 
-※ 上記は**開発・初回確認用のデバッグAPK**。上書きには同じ `applicationId` と署名鍵が必要。別の鍵に変更すると通常は上書きできず、アンインストールはアプリ内データ/キャッシュを消すため、個人利用の本番運用前に固定のリリース署名を整備する。実機側で開発者向けオプションとUSBデバッグを許可する。端末のAndroid/ColorOSバージョン、USB接続・権限の挙動を確認して記録する。
+`adb install -r` は上書き。**同じ `applicationId` と同じ署名鍵**なら、お気に入り・タグ・設定・キャッシュは残る。
+
+### 新規インストール
+
+```powershell
+.\gradlew.bat :app:assembleDebug
+adb install .\app\build\outputs\apk\debug\app-debug.apk
+```
+
+### バージョンを上げる
+
+```powershell
+.\gradlew.bat :app:assembleRelease "-Pfpv.versionCode=2" "-Pfpv.versionName=0.2.0"
+```
+
+### スクリプトから実行する
+
+```powershell
+# 接続・インストール状況の確認（バージョンと debug/release の別も表示）
+powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Info
+
+# 上書きインストール（debug）
+powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Install
+
+# 署名済み release APK の上書きインストール
+powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Install -Release
+```
+
+※ debug APK と release APK は**署名鍵が違うため互いに上書きできない**。片方から他方へ移る場合は
+アンインストールが必要で、その場合はアプリ内データが消える（写真は消えない）。
+リリース署名鍵の作成・保管は [署名鍵の運用方針](docs/signing-policy.md)、
+エラー別の対処は [APK の導入・更新手順](docs/install-and-update.md) を参照する。
 
 [個人端末向け受け入れ手順](docs/specification.md#9-個人端末での受け入れテスト)

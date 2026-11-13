@@ -27,6 +27,9 @@ keytool -genkeypair -v `
 - `keytool` は JDK に含まれる
 - `-validity` は十分に長く取る（例: 10000 日）
 - 作成後、フィンガープリントを控えて別媒体にも記録する
+- `-alias` は任意の名前でよいが、`pictobi` など分かりやすい名前にする
+- このリポジトリの Gradle 設定は `pictobi-release.properties` の
+  `storeFile` / `storePassword` / `keyAlias` / `keyPassword` を読む（下の「4-1」を参照）
 
 ```powershell
 keytool -list -v -keystore "<鍵ファイル>" -alias fastest-picture-viewer
@@ -50,6 +53,44 @@ keytool -list -v -keystore "<鍵ファイル>" -alias fastest-picture-viewer
 
 署名情報を Gradle に渡す場合も、`%USERPROFILE%\.gradle\gradle.properties` や環境変数を使い、
 プロジェクト内のファイルには書かない。
+
+## 4-1. このリポジトリでの署名設定（実装済み）
+
+`app/build.gradle.kts` は次のどちらかから署名情報を読み、揃っているときだけ release に署名する。
+
+**方法 A: リポジトリ外のプロパティファイル**
+
+`%USERPROFILE%\.android-signing\pictobi-release.properties`（`.gitignore` 対象外の場所）:
+
+```properties
+storeFile=C:/Users/<user>/.android-signing/pictobi-release.jks
+storePassword=<パスワード>
+keyAlias=pictobi
+keyPassword=<パスワード>
+```
+
+**方法 B: 環境変数（現在の PowerShell セッションのみ）**
+
+```powershell
+$env:FPV_KEYSTORE_PATH = "$env:USERPROFILE\.android-signing\pictobi-release.jks"
+$env:FPV_KEYSTORE_PASSWORD = Read-Host -AsSecureString | ConvertFrom-SecureString -AsPlainText
+$env:FPV_KEY_ALIAS = "pictobi"
+$env:FPV_KEY_PASSWORD = $env:FPV_KEYSTORE_PASSWORD
+.\gradlew.bat :app:assembleRelease
+```
+
+どちらも設定していない場合、`assembleRelease` は
+`app-release-unsigned.apk` を生成する。これは**端末にインストールできない**ため、
+リリース用途では必ず署名情報を設定する。
+
+確認:
+
+```powershell
+Get-ChildItem app\build\outputs\apk\release -Filter *.apk
+# app-release.apk が出れば署名済み、app-release-unsigned.apk だけなら未署名
+```
+
+導入・更新の詳しい手順は [APK の導入・更新手順](install-and-update.md) を参照する。
 
 ## 5. 漏えい・紛失時の扱い
 

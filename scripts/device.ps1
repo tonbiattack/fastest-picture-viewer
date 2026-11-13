@@ -5,6 +5,7 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Devices
 #   powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Info
 #   powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Install
+#   powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Install -Release
 #   powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Start
 #   powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Measure -Runs 5
 #   powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Verify -Build
@@ -17,6 +18,8 @@ param(
 
     [string]$Serial,
     [string]$Apk = 'app\build\outputs\apk\debug\app-debug.apk',
+    # release 署名済み APK を導入する場合は -Release を付ける
+    [switch]$Release,
     [string]$Package = 'com.tonbiattack.fastestpictureviewer',
     [string]$Activity = '.MainActivity',
     [int]$Runs = 3,
@@ -108,6 +111,11 @@ function Write-CsvIfRequested {
 
 $script:Adb = Resolve-Adb
 
+# -Release 指定時は署名済みリリース APK を使う (未署名 APK は導入できないため明示的に弾く)
+if ($Release) {
+    $Apk = 'app\build\outputs\apk\release\app-release.apk'
+}
+
 switch ($Action) {
     'Devices' {
         Write-Output (& $script:Adb devices -l)
@@ -122,12 +130,31 @@ switch ($Action) {
         & $script:Adb -s $target shell df /sdcard 2>&1
         Write-Output '--- 画像件数 (MediaStore の行数) ---'
         & $script:Adb -s $target shell "content query --uri content://media/external/images/media --projection _id | wc -l" 2>&1
+        Write-Output '--- インストール済みアプリ (Pictobi) ---'
+        $installed = & $script:Adb -s $target shell pm list packages $Package 2>&1
+        if ($installed -match [regex]::Escape($Package)) {
+            $dump = & $script:Adb -s $target shell dumpsys package $Package 2>&1
+            ($dump | Select-String -Pattern 'versionCode|versionName|firstInstallTime|lastUpdateTime|pkgFlags|signatures') |
+                ForEach-Object { $_.Line.Trim() }
+        } else {
+            Write-Output '未インストール'
+        }
     }
 
     'Install' {
         $target = Resolve-Serial
         $apkPath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot $Apk))
-        if (-not (Test-Path $apkPath)) { throw ("APK がありません: {0}`n先に scripts\build-and-test.ps1 を実行してください。" -f $apkPath) }
+        if (-not (Test-Path $apkPath)) {
+            $hint = if ($Release) {
+                "先に .\gradlew.bat :app:assembleRelease を実行し、署名情報を設定してください (docs\signing-policy.md)。"
+            } else {
+                "先に scripts\build-and-test.ps1 を実行してください。"
+            }
+            throw ("APK がありません: {0}`n{1}" -f $apkPath, $hint)
+        }
+        if ($apkPath -match 'unsigned') {
+            throw ("未署名 APK は端末にインストールできません: {0}`n署名情報を設定し、app-release.apk を生成してください (docs\signing-policy.md)。" -f $apkPath)
+        }
         Write-Host ("APK を上書きインストールします (アプリデータは維持): {0}" -f $apkPath) -ForegroundColor Cyan
         # -r: 上書き。同一 applicationId・同一署名ならデータは保持される
         Invoke-Adb -AdbArgs @('-s', $target, 'install', '-r', $apkPath)
