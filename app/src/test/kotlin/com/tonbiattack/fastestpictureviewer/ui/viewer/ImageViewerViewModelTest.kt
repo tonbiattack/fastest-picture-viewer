@@ -18,6 +18,7 @@ import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import com.tonbiattack.fastestpictureviewer.repository.SyncMode
 import com.tonbiattack.fastestpictureviewer.repository.SyncResult
 import com.tonbiattack.fastestpictureviewer.repository.SyncStatus
+import com.tonbiattack.fastestpictureviewer.ui.navigation.FolderSequenceStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -243,5 +244,67 @@ class ImageViewerViewModelTest {
         advanceUntilIdle()
 
         assertNull(vm.randomJumpTarget(currentIndex = 0))
+    }
+
+    @Test
+    fun `前後フォルダは一覧の並びから決まる`() = runTest {
+        val store = FolderSequenceStore()
+        store.update(listOf("v:A/", "v:Pictures/", "v:C/"))
+        val vm = ImageViewerViewModel(
+            FakeRepository(images(3)),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/")),
+            store
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.adjacentFolders.collect {} }
+        advanceUntilIdle()
+
+        assertEquals("v:A/", vm.adjacentFolders.value.previous)
+        assertEquals("v:C/", vm.adjacentFolders.value.next)
+    }
+
+    @Test
+    fun `一覧に無いフォルダでは前後移動を出さない`() = runTest {
+        val store = FolderSequenceStore()
+        store.update(listOf("v:A/", "v:C/"))
+        val vm = ImageViewerViewModel(
+            FakeRepository(images(3)),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/")),
+            store
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.adjacentFolders.collect {} }
+        advanceUntilIdle()
+
+        assertFalse(vm.adjacentFolders.value.hasAny)
+    }
+
+    @Test
+    fun `お気に入りビューアでは前後フォルダ移動を出さない`() = runTest {
+        val store = FolderSequenceStore()
+        store.update(listOf("v:A/", "v:Pictures/", "v:C/"))
+        val vm = ImageViewerViewModel(
+            FakeRepository(images(3)),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/", "favoritesOnly" to true)),
+            store
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.adjacentFolders.collect {} }
+        advanceUntilIdle()
+
+        assertFalse(vm.adjacentFolders.value.hasAny)
+    }
+
+    @Test
+    fun `前のフォルダから来た場合は末尾の画像から開く`() = runTest {
+        val handle = SavedStateHandle(
+            mapOf("folderKey" to "v:Pictures/", "startIndex" to 0, "fromEnd" to true)
+        )
+        val vm = ImageViewerViewModel(FakeRepository(images(6)), handle)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.startsWithLastImage)
+        assertEquals(5, vm.uiState.value.initialIndex)
     }
 }

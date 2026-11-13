@@ -127,7 +127,10 @@ data class FolderListUiState(
     val allTags: List<TagWithCount> = emptyList(),
 
     /** 「前回の続き」カードを表示するか (Issue #53) */
-    val showResumeCard: Boolean = true
+    val showResumeCard: Boolean = true,
+
+    /** 表示中のフォルダキー (一覧と同じ順序)。ビューアの前後フォルダ移動に使う (Issue #57) */
+    val visibleFolderKeys: List<String> = emptyList()
 ) {
     /** 同期中でまだ 1 件も無い場合に初回スキャン表示を出す */
     val showInitialScanProgress: Boolean get() = isSyncing && !hasFolders
@@ -349,7 +352,8 @@ class FolderListViewModel(
                         errorMessage = status.errorMessage,
                         tagFilter = context.filter.tagFilter,
                         allTags = allTags,
-                        showResumeCard = context.showResumeCard
+                        showResumeCard = context.showResumeCard,
+                        visibleFolderKeys = visibleFolders.map { it.folderKey }
                     )
                 }
             }
