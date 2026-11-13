@@ -165,7 +165,133 @@ powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Logs -LogLin
 | 端末が `unauthorized` | 端末側の USB デバッグ許可ダイアログを承認する |
 | インストールしたのに起動しない | `adb logcat -d -s AndroidRuntime:E` でスタックトレースを確認する |
 
-## 8. 注意事項
+## 8. 実際に実行した更新記録（OPPO Reno13 A）
+
+2026-11-13、OPPO Reno13 A（CPH2699 / Android 16 / API 36）の Pictobi を
+main の最新（PR #50 / #51 まで）へ更新したときの実コマンドと結果。
+**実行したコマンドをそのまま残す。** 端末は複数接続されていたため `-Serial` を指定した。
+
+### 8-1. 実行前の状態確認
+
+```powershell
+adb devices -l
+# 24df3d69 / 6ad7aa65（CPH2699 = OPPO Reno13 A） / fa7650977d87 の 3 台
+
+powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Info -Serial 6ad7aa65
+```
+
+結果（更新前）:
+
+```text
+versionCode=1 minSdk=29 targetSdk=36
+versionName=0.1.0
+lastUpdateTime=2026-11-12 21:21:15
+signatures=PackageSignatures{f7d3e3c version:2, signatures:[470b8fe3], past signatures:[]}
+pkgFlags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP ]
+firstInstallTime=2026-11-12 20:51:28
+
+画像件数 (MediaStore): 350973
+ストレージ: 106231420K 中 4594508K 空き (96% 使用)
+```
+
+`DEBUGGABLE` があるので端末には **debug APK** が入っている。debug 同士なら上書きできる。
+
+### 8-2. テストとビルド
+
+```powershell
+.\gradlew.bat :app:testDebugUnitTest --console=plain
+# BUILD SUCCESSFUL / tests=171 failures=0
+
+.\gradlew.bat :app:assembleDebug --console=plain
+# BUILD SUCCESSFUL
+# app\build\outputs\apk\debug\app-debug.apk (33,538,837 bytes, 2026/11/13 9:34)
+```
+
+### 8-3. 上書きインストール
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Install -Serial 6ad7aa65
+# APK を上書きインストールします (アプリデータは維持): ...\app-debug.apk
+# Performing Streamed Install
+# Success
+```
+
+`adb install -r .\app\build\outputs\apk\debug\app-debug.apk` と同じ処理。
+
+### 8-4. 更新後の確認
+
+```powershell
+adb -s 6ad7aa65 shell dumpsys package com.tonbiattack.fastestpictureviewer |
+  Select-String "versionCode|versionName|firstInstallTime|lastUpdateTime|pkgFlags"
+```
+
+結果（更新後）:
+
+```text
+versionCode=1 minSdk=29 targetSdk=36
+versionName=0.1.0
+lastUpdateTime=2026-11-13 10:03:11
+pkgFlags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ALLOW_BACKUP ]
+firstInstallTime=2026-11-12 20:51:28
+```
+
+`lastUpdateTime` だけが新しくなり、**`firstInstallTime` は変わっていない**
+= アンインストールされず、アプリデータが維持された。
+
+```powershell
+adb -s 6ad7aa65 logcat -c
+adb -s 6ad7aa65 shell am start -W -n com.tonbiattack.fastestpictureviewer/.MainActivity
+```
+
+結果:
+
+```text
+Status: ok
+LaunchState: COLD
+TotalTime: 1791
+WaitTime: 1996
+```
+
+```powershell
+Start-Sleep -Seconds 6
+adb -s 6ad7aa65 logcat -d -s AndroidRuntime:E FPV-Perf:I Room:E SQLiteLog:E
+```
+
+結果: クラッシュ・DB エラーなし。差分同期が 1 回走ったのみ。
+
+```text
+I FPV-Perf: volume=external_primary currentGen=3466426 storedGen=3466412 kind=INCREMENTAL
+```
+
+画面確認（スクリーンショットと UI ツリー取得）:
+
+```powershell
+adb -s 6ad7aa65 shell screencap -p /sdcard/oppo1.png
+adb -s 6ad7aa65 pull /sdcard/oppo1.png captures\oppo-after-update.png
+adb -s 6ad7aa65 shell rm /sdcard/oppo1.png
+
+adb -s 6ad7aa65 shell uiautomator dump /sdcard/o.xml
+adb -s 6ad7aa65 pull /sdcard/o.xml captures\oppo.xml
+adb -s 6ad7aa65 shell rm /sdcard/o.xml
+python -X utf8 scripts\ui_find.py captures\oppo.xml ""
+```
+
+結果:
+
+- フォルダ一覧が表示され、「前回の続き（ララ1115 / 57枚）」も残っている
+- タグ・お気に入り・除外設定・列数設定が維持されている
+- フォルダを開くと `01.jpg` から始まる（#49 の自然順先頭）
+- フォルダ一覧のサムネイルも `01.jpg` と同じ画像
+- ビューアで `1 / 57 01.jpg` が開き、ページスクラバーも動作
+
+### 8-5. 今回の更新に含まれる変更
+
+- #49 フォルダ代表サムネイルをファイル名の自然順先頭に統一
+- #51 APK の導入・更新手順の整備、リリース署名設定
+
+DB のバージョンは v8 のまま（#46 で追加済み）なので、DB 移行は発生していない。
+
+## 9. 注意事項
 
 - **アンインストール・写真削除・端末リセットは破壊的。** 明示的な指示がない限り行わない。
 - 署名鍵・パスワードは Git にコミットしない（`.gitignore` 済み）。
