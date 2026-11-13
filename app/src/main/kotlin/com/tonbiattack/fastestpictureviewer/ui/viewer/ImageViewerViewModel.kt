@@ -104,6 +104,17 @@ class ImageViewerViewModel(
         savedStateHandle[KEY_PAGE] = index
     }
 
+    /**
+     * ランダムジャンプのジャンプ先インデックスを返す (Issue #58)。
+     * 画像が無ければ null。現在表示中の画像は可能な限り避ける。
+     * 画面履歴や戻る階層は増やさず、同じビューア内でページを移るだけ。
+     */
+    fun randomJumpTarget(currentIndex: Int): Int? =
+        RandomJumpMath.pickTarget(
+            count = uiState.value.images.size,
+            currentIndex = currentIndex
+        )
+
     /** 画像のお気に入りをワンタップで切り替える */
     fun toggleFavorite(itemId: String, currentFavorite: Boolean) {
         val next = !currentFavorite

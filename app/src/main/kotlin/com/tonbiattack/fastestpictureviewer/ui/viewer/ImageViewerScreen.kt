@@ -217,6 +217,23 @@ fun ImageViewerScreen(
                                     }
                                 )
                             }
+                            // ランダムジャンプ (Issue #58)。ページを移るだけなので戻る階層は増えない
+                            if (state.images.size > 1) {
+                                IconButton(
+                                    onClick = {
+                                        val target = viewModel.randomJumpTarget(currentIndex)
+                                            ?: return@IconButton
+                                        // 取得直後に削除された場合に備え、必ず現在の一覧で確認する
+                                        if (state.images.getOrNull(target) == null) return@IconButton
+                                        scope.launch { pagerState.scrollToPage(target) }
+                                    }
+                                ) {
+                                    Icon(
+                                        painterResource(R.drawable.ic_dice),
+                                        contentDescription = "ランダムジャンプ"
+                                    )
+                                }
+                            }
                             Box {
                                 IconButton(onClick = { menuExpanded = true }) {
                                     Icon(Icons.Filled.MoreVert, contentDescription = "メニュー")
