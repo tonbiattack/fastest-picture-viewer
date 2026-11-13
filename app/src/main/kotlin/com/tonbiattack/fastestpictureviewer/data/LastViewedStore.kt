@@ -1,6 +1,7 @@
 package com.tonbiattack.fastestpictureviewer.data
 
 import android.content.Context
+import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,17 +47,17 @@ class SharedPreferencesLastViewedStore(context: Context) : LastViewedStore {
             itemIndex = itemIndex.coerceAtLeast(0),
             updatedAtSec = System.currentTimeMillis() / 1000
         )
-        prefs.edit()
-            .putString(KEY_FOLDER, record.folderKey)
-            .putString(KEY_ITEM, record.itemId)
-            .putInt(KEY_INDEX, record.itemIndex)
-            .putLong(KEY_UPDATED, record.updatedAtSec)
-            .apply()
+        prefs.edit {
+            putString(KEY_FOLDER, record.folderKey)
+            putString(KEY_ITEM, record.itemId)
+            putInt(KEY_INDEX, record.itemIndex)
+            putLong(KEY_UPDATED, record.updatedAtSec)
+        }
         _lastViewed.value = record
     }
 
     override fun clear() {
-        prefs.edit().clear().apply()
+        prefs.edit { clear() }
         _lastViewed.value = null
     }
 

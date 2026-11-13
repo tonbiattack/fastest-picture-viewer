@@ -66,6 +66,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -97,8 +98,8 @@ import kotlin.math.roundToInt
 fun ImageViewerScreen(
     viewModel: ImageViewerViewModel,
     onBack: (itemId: String?, index: Int) -> Unit,
-    onOpenAdjacentFolder: (folderKey: String, fromEnd: Boolean) -> Unit = { _, _ -> },
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenAdjacentFolder: (folderKey: String, fromEnd: Boolean) -> Unit = { _, _ -> }
 ) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
     val adjacent = viewModel.adjacentFolders.collectAsStateWithLifecycle().value
@@ -535,7 +536,7 @@ private fun ZoomableImage(
 private fun shareImage(context: Context, image: ImageItem) {
     val send = Intent(Intent.ACTION_SEND).apply {
         type = image.mimeType.orEmpty().ifBlank { "image/*" }
-        putExtra(Intent.EXTRA_STREAM, Uri.parse(image.uri))
+        putExtra(Intent.EXTRA_STREAM, image.uri.toUri())
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     val chooser = Intent.createChooser(send, "画像を共有").apply {
