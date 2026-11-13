@@ -21,6 +21,7 @@ import com.tonbiattack.fastestpictureviewer.ui.folder.SharedPreferencesFolderVie
 import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridViewSettings
 import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridViewModel
 import com.tonbiattack.fastestpictureviewer.ui.grid.SharedPreferencesImageGridViewSettings
+import com.tonbiattack.fastestpictureviewer.ui.navigation.FolderSequenceStore
 import com.tonbiattack.fastestpictureviewer.ui.viewer.ImageViewerViewModel
 import coil.ImageLoader
 import coil.ImageLoaderFactory
@@ -53,6 +54,12 @@ class AppContainer(
     val lastViewedStore: LastViewedStore = SharedPreferencesLastViewedStore(context)
 
     /**
+     * フォルダ一覧に表示中の並び。ビューアから前後フォルダへ移動するときに使う (Issue #57)。
+     * メモリ上のみで、DB への読み書きは行わない。
+     */
+    val folderSequenceStore: FolderSequenceStore = FolderSequenceStore()
+
+    /**
      * サムネイルのメモリ・ディスクキャッシュを削除する。
      * Room のメタ情報は消さないため、次回表示時に再生成されるだけ。
      */
@@ -77,7 +84,7 @@ class AppContainer(
                 modelClass.isAssignableFrom(ImageGridViewModel::class.java) ->
                     ImageGridViewModel(repository, savedStateHandle, imageGridViewSettings)
                 modelClass.isAssignableFrom(ImageViewerViewModel::class.java) ->
-                    ImageViewerViewModel(repository, savedStateHandle)
+                    ImageViewerViewModel(repository, savedStateHandle, folderSequenceStore)
                 modelClass.isAssignableFrom(AppViewModel::class.java) ->
                     AppViewModel(repository)
                 else -> throw IllegalArgumentException("Unknown ViewModel: $modelClass")

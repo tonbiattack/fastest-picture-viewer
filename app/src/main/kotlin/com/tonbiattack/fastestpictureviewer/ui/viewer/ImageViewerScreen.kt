@@ -97,9 +97,11 @@ import kotlin.math.roundToInt
 fun ImageViewerScreen(
     viewModel: ImageViewerViewModel,
     onBack: (itemId: String?, index: Int) -> Unit,
+    onOpenAdjacentFolder: (folderKey: String, fromEnd: Boolean) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
+    val adjacent = viewModel.adjacentFolders.collectAsStateWithLifecycle().value
     val context = LocalContext.current
     val imageLoader = context.imageLoader
     val containerSize = LocalWindowInfo.current.containerSize
@@ -137,7 +139,6 @@ fun ImageViewerScreen(
         initialPage = state.initialIndex,
         pageCount = { state.images.size }
     )
-
     val currentIndex = pagerState.currentPage.coerceIn(
         0,
         (state.images.size - 1).coerceAtLeast(0)
@@ -158,6 +159,15 @@ fun ImageViewerScreen(
         snapshotFlow { pagerState.currentPage }
             .distinctUntilChanged()
             .collect { viewModel.onPageChanged(it) }
+    }
+
+    // 前のフォルダから移動してきた場合は、画像が揃った時点で末尾の画像を開く (Issue #57)
+    var appliedStartFromEnd by remember(state.images.size) { mutableStateOf(false) }
+    LaunchedEffect(state.images.size, state.startsWithLastImage) {
+        if (!appliedStartFromEnd && state.startsWithLastImage && state.images.isNotEmpty()) {
+            appliedStartFromEnd = true
+            pagerState.scrollToPage(state.images.lastIndex)
+        }
     }
 
     // 前後 1 枚だけ画面サイズで先読みする。全件先読みはせず、メモリ圧迫時はキャッシュ側で解放される
@@ -256,6 +266,29 @@ fun ImageViewerScreen(
                                             showInfo = true
                                         }
                                     )
+                                    // 前後のフォルダへ移動 (Issue #57)。一覧の並び順・絞り込みを引き継ぐ
+                                    if (adjacent.hasPrevious) {
+                                        DropdownMenuItem(
+                                            text = { Text("前のフォルダへ") },
+                                            onClick = {
+                                                menuExpanded = false
+                                                adjacent.previous?.let { target ->
+                                                    onOpenAdjacentFolder(target, true)
+                                                }
+                                            }
+                                        )
+                                    }
+                                    if (adjacent.hasNext) {
+                                        DropdownMenuItem(
+                                            text = { Text("次のフォルダへ") },
+                                            onClick = {
+                                                menuExpanded = false
+                                                adjacent.next?.let { target ->
+                                                    onOpenAdjacentFolder(target, false)
+                                                }
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -6,11 +6,14 @@ import androidx.lifecycle.viewModelScope
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
+import com.tonbiattack.fastestpictureviewer.ui.navigation.AdjacentFolders
+import com.tonbiattack.fastestpictureviewer.ui.navigation.FolderSequenceStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -24,7 +27,9 @@ data class ImageViewerUiState(
     /** 起動時に指していた位置 */
     val initialIndex: Int = 0,
     /** お気に入り登録済みの画像 ID */
-    val favoriteIds: Set<String> = emptySet()
+    val favoriteIds: Set<String> = emptySet(),
+    /** 前のフォルダから移動してきたので末尾の画像から開く (Issue #57) */
+    val startsWithLastImage: Boolean = false
 )
 
 /**
@@ -36,7 +41,8 @@ data class ImageViewerUiState(
  */
 class ImageViewerViewModel(
     private val repository: GalleryRepository,
-    private val savedStateHandle: SavedStateHandle
+    private val savedStateHandle: SavedStateHandle,
+    private val folderSequenceStore: FolderSequenceStore = FolderSequenceStore()
 ) : ViewModel() {
 
     private val rawFolderKey: String = savedStateHandle.get<String>(KEY_FOLDER).orEmpty()
@@ -66,6 +72,13 @@ class ImageViewerViewModel(
         index.takeIf { it >= 0 } ?: 0
     }
 
+    /** 前のフォルダから移動してきたか。末尾の画像から開く (Issue #57) */
+    private val openFromEnd: Boolean = when (val raw: Any? = savedStateHandle[KEY_FROM_END]) {
+        is Boolean -> raw
+        is String -> raw.toBoolean()
+        else -> false
+    }
+
     private val imagesFlow: Flow<List<ImageItem>> =
         if (favoritesOnly) {
             repository.observeFavoriteImages(favoriteFolderFilter)
@@ -90,8 +103,14 @@ class ImageViewerViewModel(
         }
         ImageViewerUiState(
             images = images,
-            initialIndex = requestedIndex.coerceIn(0, (images.size - 1).coerceAtLeast(0)),
-            favoriteIds = favoriteIds
+            initialIndex = if (openFromEnd && images.isNotEmpty()) {
+                // 前のフォルダから移動したときは末尾の画像から開く (Issue #57)
+                images.lastIndex
+            } else {
+                requestedIndex.coerceIn(0, (images.size - 1).coerceAtLeast(0))
+            },
+            favoriteIds = favoriteIds,
+            startsWithLastImage = openFromEnd
         )
     }.stateIn(
         scope = viewModelScope,
@@ -114,6 +133,31 @@ class ImageViewerViewModel(
             count = uiState.value.images.size,
             currentIndex = currentIndex
         )
+
+    /**
+     * 前後のフォルダ (Issue #57)。フォルダ一覧で表示中の並び・絞り込み結果を引き継ぐ。
+     * お気に入り画像の全件ビューアなどフォルダに紐付かない画面では常に NONE。
+     */
+    val adjacentFolders: StateFlow<AdjacentFolders> =
+        folderSequenceStore.folderKeys
+            .map { keys -> adjacentOf(keys) }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5_000),
+                initialValue = AdjacentFolders.NONE
+            )
+
+    private fun adjacentOf(keys: List<String>): AdjacentFolders {
+        if (favoritesOnly || rawFolderKey.isEmpty() || rawFolderKey == ALL_FAVORITES) {
+            return AdjacentFolders.NONE
+        }
+        val index = keys.indexOf(rawFolderKey)
+        if (index < 0) return AdjacentFolders.NONE
+        return AdjacentFolders(
+            previous = keys.getOrNull(index - 1),
+            next = keys.getOrNull(index + 1)
+        )
+    }
 
     /** 画像のお気に入りをワンタップで切り替える */
     fun toggleFavorite(itemId: String, currentFavorite: Boolean) {
@@ -138,6 +182,7 @@ class ImageViewerViewModel(
         private const val KEY_FOLDER = "folderKey"
         private const val KEY_INDEX = "startIndex"
         private const val KEY_PAGE = "currentPage"
+        private const val KEY_FROM_END = "fromEnd"
         private const val KEY_FAVORITES_ONLY = "favoritesOnly"
     }
 }

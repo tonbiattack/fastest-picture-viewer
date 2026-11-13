@@ -44,7 +44,7 @@ object Routes {
     const val EXCLUDED_FOLDERS = "excluded-folders"
     const val FAVORITES = "favorites"
     const val IMAGE_GRID = "images/{folderKey}"
-    const val IMAGE_VIEWER = "viewer/{folderKey}/{startIndex}?favoritesOnly={favoritesOnly}"
+    const val IMAGE_VIEWER = "viewer/{folderKey}/{startIndex}?favoritesOnly={favoritesOnly}&fromEnd={fromEnd}"
 
     /** フォルダ識別子に "/" や ":" を含むため、全特殊文字をエンコードして渡す */
     private fun encode(folderKey: String): String = Uri.encode(folderKey, "")
@@ -53,8 +53,11 @@ object Routes {
     fun imageViewer(
         folderKey: String,
         index: Int,
-        favoritesOnly: Boolean = false
-    ): String = "viewer/${encode(folderKey)}/$index?favoritesOnly=$favoritesOnly"
+        favoritesOnly: Boolean = false,
+        /** 前のフォルダから移動したときは末尾の画像から開く (Issue #57) */
+        fromEnd: Boolean = false
+    ): String =
+        "viewer/${encode(folderKey)}/$index?favoritesOnly=$favoritesOnly&fromEnd=$fromEnd"
 }
 
 /**
@@ -83,6 +86,11 @@ fun AppNavHost(
     ) {
         composable(Routes.FOLDER_LIST) {
             val viewModel: FolderListViewModel = viewModel(factory = factory)
+            val listState = viewModel.uiState.collectAsStateWithLifecycle().value
+            // ビューアから前後フォルダへ移動できるよう、表示中の並びを共有する (Issue #57)
+            LaunchedEffect(listState.visibleFolderKeys) {
+                container.folderSequenceStore.update(listState.visibleFolderKeys)
+            }
             FolderListScreen(
                 viewModel = viewModel,
                 accessLevel = accessLevel,
@@ -208,12 +216,26 @@ fun AppNavHost(
                 navArgument("favoritesOnly") {
                     type = NavType.BoolType
                     defaultValue = false
+                },
+                navArgument("fromEnd") {
+                    type = NavType.BoolType
+                    defaultValue = false
                 }
             )
         ) {
             val viewModel: ImageViewerViewModel = viewModel(factory = factory)
             ImageViewerScreen(
                 viewModel = viewModel,
+                onOpenAdjacentFolder = { folderKey, fromEnd ->
+                    // 前後フォルダへの移動は現在のフォルダとビューアを置き換える。
+                    // 戻ると移動先フォルダの画像一覧へ戻る (Issue #57)
+                    navController.navigate(Routes.imageGrid(folderKey)) {
+                        popUpTo(Routes.FOLDER_LIST)
+                    }
+                    navController.navigate(
+                        Routes.imageViewer(folderKey, index = 0, fromEnd = fromEnd)
+                    )
+                },
                 onBack = { itemId, index ->
                     val viewerEntry = navController.currentBackStackEntry
                     val folderKey = viewerEntry?.arguments?.getString("folderKey")
