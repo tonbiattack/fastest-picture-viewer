@@ -37,6 +37,10 @@ jobs:
 
       # Android SDK はランナー同梱のものを使う (ANDROID_HOME 設定済み)。
       # local.properties は無いが、ANDROID_HOME から解決される。
+      # Windows で作ったリポジトリのため gradlew に実行権限が無い。ここで付与する。
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --console=plain --no-daemon
 
