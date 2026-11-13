@@ -1,0 +1,64 @@
+# PR と main への push で単体テストと debug ビルドを検証する (Issue #62)
+# 実機が必要な connectedAndroidTest は対象外。
+name: Android CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 同じブランチで新しい実行が始まったら古い実行を打ち切る
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Unit test & assemble debug
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Android SDK はランナー同梱のものを使う (ANDROID_HOME 設定済み)。
+      # local.properties は無いが、ANDROID_HOME から解決される。
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --console=plain --no-daemon
+
+      - name: Assemble debug APK
+        run: ./gradlew :app:assembleDebug --console=plain --no-daemon
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload debug APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+          if-no-files-found: ignore

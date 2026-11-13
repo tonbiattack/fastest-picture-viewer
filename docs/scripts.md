@@ -55,6 +55,16 @@ python -X utf8 scripts\ui_find.py captures\u.xml "タグ"
 このテストは端末にテスト用 APK をインストールして実行するだけで、
 アプリのデータ（写真・Room・設定）は削除しない。
 
+## CI（GitHub Actions）
+
+.github/workflows/android.yml が main への push と pull_request で次を検証する。
+
+- :app:testDebugUnitTest（Robolectric / 純粋ロジック）
+- :app:assembleDebug（APK が生成できること）
+
+実機が必要な connectedDebugAndroidTest は CI では実行しない。
+署名鍵や個人情報は使わず、debug ビルドのみを対象にしている。
+
 ## APK の導入・更新（device.ps1）
 
 | 目的 | コマンド |
