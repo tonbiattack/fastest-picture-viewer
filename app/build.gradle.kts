@@ -89,6 +89,8 @@ android {
     // Compose を使用
     buildFeatures {
         compose = true
+        // バックアップにアプリのバージョン名を記録するため (Issue #74)
+        buildConfig = true
     }
 
     // Robolectric がリソースを使えるようにする (DAO の単体テスト用)

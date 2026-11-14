@@ -52,6 +52,10 @@ interface ExcludedFolderDao {
 
     @Query("SELECT COUNT(*) FROM excluded_folders WHERE folderKey = :folderKey")
     suspend fun exists(folderKey: String): Long
+
+    /** 全件取得 (バックアップ用) */
+    @Query("SELECT * FROM excluded_folders")
+    suspend fun getAll(): List<ExcludedFolderEntity>
 }
 
 /** フォルダ別スクロール位置の DAO */
@@ -102,6 +106,10 @@ interface FavoriteFolderDao {
 
     @Query("SELECT COUNT(*) FROM favorite_folders WHERE folderKey = :folderKey")
     suspend fun exists(folderKey: String): Long
+
+    /** 全件取得 (バックアップ用) */
+    @Query("SELECT * FROM favorite_folders")
+    suspend fun getAll(): List<FavoriteFolderEntity>
 }
 
 /** お気に入りの DAO */
@@ -119,4 +127,8 @@ interface FavoriteImageDao {
 
     @Query("SELECT COUNT(*) FROM favorite_images WHERE itemId = :itemId")
     suspend fun exists(itemId: String): Long
+
+    /** 全件取得 (バックアップ用) */
+    @Query("SELECT * FROM favorite_images")
+    suspend fun getAll(): List<FavoriteImageEntity>
 }

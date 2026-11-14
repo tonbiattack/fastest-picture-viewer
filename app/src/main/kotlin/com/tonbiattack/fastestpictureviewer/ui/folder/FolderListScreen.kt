@@ -106,6 +106,7 @@ fun FolderListScreen(
     onClearImageCache: () -> Unit,
     onOpenFavorites: () -> Unit,
     onOpenExcludedFolders: () -> Unit,
+    onOpenBackup: () -> Unit,
     onExcludeFolder: (FolderUiModel) -> Unit,
     onSetFolderFavorite: (FolderUiModel, Boolean) -> Unit,
     onOpenFolder: (FolderUiModel) -> Unit,
@@ -340,6 +341,13 @@ fun FolderListScreen(
                                     onClick = {
                                         topMenuExpanded = false
                                         showClearCacheDialog = true
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("バックアップ") },
+                                    onClick = {
+                                        topMenuExpanded = false
+                                        onOpenBackup()
                                     }
                                 )
                             }

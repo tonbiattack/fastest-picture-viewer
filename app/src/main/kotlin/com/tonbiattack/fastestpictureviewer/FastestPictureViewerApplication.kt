@@ -8,12 +8,15 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
+import com.tonbiattack.fastestpictureviewer.data.BackupRepository
 import com.tonbiattack.fastestpictureviewer.data.LastViewedStore
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
 import com.tonbiattack.fastestpictureviewer.data.SharedPreferencesLastViewedStore
+import com.tonbiattack.fastestpictureviewer.data.ViewSettingsBackupAccess
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepositoryImpl
 import com.tonbiattack.fastestpictureviewer.ui.favorites.FavoriteImagesViewModel
+import com.tonbiattack.fastestpictureviewer.ui.backup.BackupViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.ExcludedFoldersViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.FolderListViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.FolderViewSettings
@@ -53,6 +56,12 @@ class AppContainer(
     /** 起動時の「前回の続き」用の最後の閲覧位置 */
     val lastViewedStore: LastViewedStore = SharedPreferencesLastViewedStore(context)
 
+    /** タグ・お気に入り・設定のバックアップ (Issue #74) */
+    val backupRepository: BackupRepository = BackupRepository(
+        db = database,
+        settingsAccess = ViewSettingsBackupAccess(folderViewSettings, imageGridViewSettings)
+    )
+
     /**
      * フォルダ一覧に表示中の並び。ビューアから前後フォルダへ移動するときに使う (Issue #57)。
      * メモリ上のみで、DB への読み書きは行わない。
@@ -87,6 +96,11 @@ class AppContainer(
                     ImageViewerViewModel(repository, savedStateHandle, folderSequenceStore)
                 modelClass.isAssignableFrom(AppViewModel::class.java) ->
                     AppViewModel(repository)
+                modelClass.isAssignableFrom(BackupViewModel::class.java) ->
+                    BackupViewModel(
+                        backupRepository = backupRepository,
+                        appVersionName = BuildConfig.VERSION_NAME
+                    )
                 else -> throw IllegalArgumentException("Unknown ViewModel: $modelClass")
             } as T
         }
