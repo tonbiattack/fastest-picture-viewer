@@ -1,348 +1,168 @@
-<p align="center">
-  <img src="docs/images/pictobi-icon.png" alt="Pictobi のアイコン" width="160" height="160">
-</p>
+<div align="center">
 
-# Pictobi (fastest-picture-viewer)
+<img src="docs/images/pictobi-icon.png" alt="Pictobi" width="128" height="128">
 
-**Pictobi（ピクトビ）** — OPPO Reno13 A専用・表示速度最優先の個人用Android画像ビューア（MVP実装済み・実機検証済み／継続検証中）
+# Pictobi
 
-アプリの表示名は **Pictobi**。リポジトリ名 `fastest-picture-viewer`、`applicationId`、データ保存先は既存インストールの更新互換性を保つため変更しない。
+**大量の画像を、フォルダ単位で待たされずに見る。**
 
-内部ストレージやSDカードに保存された大量の画像を、フォルダ単位で素早く閲覧することを目指すアプリです。多機能化よりも、**起動・復帰・画面遷移のたびに待たされないこと**を優先します。
+Android 向けのオープンソース画像ビューア。35万枚規模のライブラリでも、
+起動・復帰・戻る操作で一覧が消えないことを最優先に設計しています。
 
-## 最終ゴール・配布方針
+[![Android CI](https://github.com/tonbiattack/fastest-picture-viewer/actions/workflows/android.yml/badge.svg)](https://github.com/tonbiattack/fastest-picture-viewer/actions/workflows/android.yml)
+[![Latest release](https://img.shields.io/github/v/release/tonbiattack/fastest-picture-viewer?label=release)](https://github.com/tonbiattack/fastest-picture-viewer/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![minSdk](https://img.shields.io/badge/minSdk-29-green.svg)](https://developer.android.com/about/versions/10)
 
-- **唯一の利用対象:** 個人所有の **OPPO Reno13 A**。端末のAndroidバージョン・ColorOSバージョン・空き容量・SDカード使用有無はADB/実機で確認する
-- **完成条件:** 自分のスマホにAPKをインストールし、普段使う画像フォルダをストレスなく閲覧でき、起動・復帰・戻る操作で一覧が不必要に消えない
-- **配布:** Google Playストアには公開しない。**GitHub Releases で署名済み APK を無料配布**する（手順は [リリース手順](docs/release.md)）
-- **導入・更新:** Windows PCからUSBデバッグ + ADBでAPKをインストール/上書きする。長期利用は固定のapplicationIdと安全に保管した専用署名鍵で署名したAPKを使う（鍵・パスワードはGitにコミットしない）
-- **検証:** OPPO Reno13 Aでの実機確認を必須とし、エミュレーターや大規模なE2E基盤は必要時のみ。実装・Gradleテスト・APK生成・ADB導入・ログ収集は可能な限りAIで自動化する
-- **範囲外:** Playストア申請、ストア向け説明文、公開用プライバシーポリシー、広告・課金・アカウント、機種横断の網羅的動作保証
+[ダウンロード](https://github.com/tonbiattack/fastest-picture-viewer/releases/latest) ·
+[ドキュメント](docs/) ·
+[Issues](https://github.com/tonbiattack/fastest-picture-viewer/issues)
 
-## 解決したい課題
+</div>
 
-既存の画像ギャラリーを利用する際、以下の問題が発生しています。
+<img src="docs/images/screenshot-folders.png" alt="フォルダ一覧" width="270"> <img src="docs/images/screenshot-grid.png" alt="画像一覧" width="270"> <img src="docs/images/screenshot-viewer.png" alt="画像ビューア" width="270">
 
-- アプリを開いてからフォルダ一覧が表示されるまで時間がかかる
-- 別のアプリから戻ると、開いているフォルダは維持されても一覧データが再読み込みされる
-- 個別フォルダからフォルダ一覧へ戻った際に、再読み込み中の一覧が一時的に消える
+> スクリーンショットは検証用のサンプル画像で撮影しています。
 
-**設計原則:** すでに取得済みの一覧は即座に表示し、データ更新は裏側で行う。更新処理の開始を理由に一覧を空にしない。
+## 特徴
 
-## 主要機能（実装済み）
+- **待たせない** — Room のキャッシュを即座に表示し、更新はバックグラウンドで行う。更新開始で一覧を空にしない
+- **戻っても消えない** — 画面遷移・アプリ復帰・プロセス再生成後も一覧と閲覧位置を復元する
+- **大量画像に耐える** — 35万枚 / 2,640フォルダで実機検証。MediaStore の世代番号で差分のみ走査する
+- **オフライン完結** — ネットワーク権限なし。画像も閲覧履歴も端末外へ送らない
+- **広告・課金・アカウントなし** — 署名済み APK を直接配布
 
-| 優先度 | 機能 |
+## インストール
+
+Google Play では配布していません。APK を直接インストールします。
+
+1. [Releases](https://github.com/tonbiattack/fastest-picture-viewer/releases/latest) から `Pictobi-<version>.apk` をダウンロード
+2. 「設定 → セキュリティ」で、使ったブラウザ/ファイルアプリの「提供元不明のアプリ」を許可
+3. APK をタップしてインストール
+4. 起動して「写真と動画の閲覧」を許可
+
+既に Pictobi を入れている場合は、上書きインストールでデータを保持したまま更新できます。
+
+<details>
+<summary>PC から入れる場合（adb）</summary>
+
+```bash
+adb install -r Pictobi-<version>.apk
+```
+
+</details>
+
+> **注意:** 署名の異なる APK は上書きできません（`INSTALL_FAILED_UPDATE_INCOMPATIBLE`）。
+> 各リリースの SHA-256 を照合してから導入すると安全です。
+
+## 主な機能
+
+| カテゴリ | 機能 |
 | --- | --- |
-| P0 | フォルダ一覧（フォルダ内画像の最新更新日時の降順） |
-| P0 | フォルダ内画像一覧（ファイル名の昇順） |
-| P0 | Roomによる画像・フォルダ情報の永続キャッシュ |
-| P0 | 画面遷移・アプリ復帰・プロセス再生成後の一覧と閲覧位置の復元 |
-| P0 | Androidの内部ストレージ・SDカードへの対応 |
-| P1 | バックグラウンド差分同期と更新失敗時のキャッシュ保護 |
-| P1 | サムネイルのディスクキャッシュ・画像の先読み |
-| P1 | 除外フォルダの指定・解除（非破壊・設定画面から解除可能） |
-| P1 | フォルダ一覧の複数列グリッド（1〜4列・列数を永続化） |
-| P1 | フォルダ代表サムネイルはファイル名の自然順先頭の画像 |
-| P1 | フォルダ内画像グリッドの列数変更（2〜6列・フォルダ一覧とは独立して永続化） |
-| P1 | 画像詳細のシングルタップで没入型全画面表示（システムバー非表示） |
-| P1 | 画像詳細の軽量ページスクラバー（サムネイルなし・離した時だけジャンプ） |
-| P1 | ダブルタップした位置を中心にズーム |
-| P1 | 画像グリッドのお気に入りフィルタ・ファイル名検索 |
-| P1 | 画像詳細から戻った際に最後に閲覧した画像の位置へ復帰 |
-| P1 | フォルダへのタグ付与（複数タグ・検索選択・検索結果への一括付与・タグ絞り込み） |
-| P1 | フォルダ内画像グリッドの縦向き・横向き別の列数保存 |
-| P1 | 写真一覧のピンチ操作による一時的な列数変更（指を離すと復帰） |
-| P2 | 画像の共有と画像情報シート |
-| P2 | ビューアのランダムジャンプ（同フォルダ内・戻ると通常一覧へ復帰） |
-| P2 | ビューアから前後のフォルダへ連続移動（一覧の並び順・絞り込みを引き継ぐ） |
-| P2 | 起動時の「前回の続き」カード（表示/非表示を設定可能・既定は表示） |
-| P1 | フォルダ名の検索・絞り込み（部分一致・大文字小文字無視） |
-| P1 | フォルダお気に入りと「お気に入りのみ」表示 |
-| P1 | フォルダカードの長押しメニュー（⋮を常時表示しない） |
-| P1 | フォルダ一覧・画像一覧のドラッグ可能な高速スクローラー |
-| P1 | フォルダ内画像の自然順ソート（7→8→10、先頭ゼロ・複数数値対応） |
-| P1 | 画像単位のお気に入りのワンタップ登録/解除とカード星表示 |
-| P1 | お気に入り画像のフォルダ別・全件まとめて閲覧 |
-| P1 | フォルダ別の画像一覧スクロール位置の保存・復元 |
-| P1 | フォルダ一覧の並び順ごとのスクロール位置保存・復元（アプリ再起動対応） |
-| P1 | コンパクトな画像一覧ヘッダーとフォルダ名の全文表示 |
-| P1 | アプリ全体の常時ダークテーマ |
-| P2 | フォルダ一覧の最近閲覧順の並び替え |
-| P2 | アプリ表示名「Pictobi」とオリジナルの adaptive icon（monochrome / スプラッシュ対応） |
-| P1 | 起動時間・復帰時間・メモリ使用量の計測とテスト |
+| 閲覧 | フォルダ一覧 / 画像グリッド / 画像ビューア（スワイプ・ピンチ・ダブルタップ） |
+| 整理 | お気に入り（フォルダ・画像）、タグ付けとタグ絞り込み、除外フォルダ |
+| 検索 | フォルダ名・ファイル名の絞り込み（大文字小文字を無視） |
+| 移動 | ページスクラバー、高速スクローラー、ランダムジャンプ、前後フォルダ移動 |
+| 表示 | 列数変更（1〜4 / 2〜6列）、縦横別の列数、ピンチで一時変更、常時ダーク |
+| 継続性 | スクロール位置・閲覧位置の復元、起動時の「前回の続き」カード |
+| その他 | 画像の共有・情報表示、自然順ソート、没入型全画面 |
 
-想定する画像数は最低2,000枚以上。キャッシュ済みのフォルダ一覧を起動後200ms以内に表示することを初期性能目標とし、実機計測で見直します。
-
-## 技術構成
-
-- **OS:** Android
-- **言語:** Kotlin
-- **UI:** Jetpack Compose
-- **データベース:** Room (SQLite)
-- **画像読み込み:** Coil
-- **メディア取得:** MediaStore（SDカードはボリューム別クエリで対応。SAFは未使用）
-
-メタデータはRoom、サムネイルはディスク、表示中および前後の画像はRAMで管理します。元画像を丸ごとRAMに保持する設計にはしません。
-
-## 開発ドキュメント
-
-- [仕様書（最新版）](docs/specification.md)
-- [APK の導入・更新手順](docs/install-and-update.md)
-- [リリース手順（GitHub Releases）](docs/release.md)
-- [Windows 11 ビルド・テスト環境手順](docs/build-environment.md)
-- [実機（OPPO Reno13 A）検証手順](docs/device-verification.md)
-- [ビルド・テスト・実機操作のスクリプト](docs/scripts.md)
-- [PC から SD カードへ転送する手順](docs/sd-transfer.md)
-- [UX改善バックログ（採用・保留・不採用）](docs/ux-backlog.md)
-- [署名鍵の運用方針](docs/signing-policy.md)
-- [実装指示の参考資料](docs/gpt/spec.md)
-- [既存ギャラリーの課題分析](docs/gpt/既存分析.md)
-- [過去の設計メモ](docs/gpt/old/仕様.md)
-- [GitHub Issues](https://github.com/tonbiattack/fastest-picture-viewer/issues)
-
-## 開発状況
-
-P0 は完了し、P1 の主要機能と P2 の一部まで実装済みです
-(Kotlin / Compose / Room / Coil / MediaStore)。未実装・保留の案は
-[UX改善バックログ](docs/ux-backlog.md) に分けて管理しています。
-
-- 実装済み: フォルダ一覧・画像グリッド・ビューア・お気に入り・タグ・検索・除外・
-  スクロール復元・差分同期・サムネイルキャッシュ・列数設定・ランダムジャンプ・前後フォルダ移動
-- 実機検証: OPPO Reno13 A（画像 350,973 件 / フォルダ 2,640）で確認済み。
-  詳細は [実機検証手順](docs/device-verification.md)
-- 未実施・既知の制限: 上記ドキュメントのチェックリストに残しています
-
-- フォルダ一覧 (Room キャッシュ即表示・更新日時降順) / フォルダ内グリッド (ファイル名昇順) / 画像ビューア (ページャ・ズーム)
-- 権限: Android 14 部分アクセスも含めたレベル判定。権限拒否時はキャッシュを消さず案内表示
-- 同期: MediaStore の世代番号で変更のないボリュームをスキップ。変更時は削除・改名・移動も反映。
-  MediaStore 変更通知と起動・復帰時の差分走査、手動更新の完全走査に対応。失敗時は当該ボリュームのキャッシュを保持
-- サムネイル: Coil のメモリ/ディスクキャッシュを更新日時キーで管理。ビューアの前後 1 枚を先読みし、
-  メモリ逼迫時はメモリキャッシュのみ解放。キャッシュクリア UI 付き
-- フォルダ並び順: フォルダ内画像の `MAX(dateModified)` 降順。同値はフォルダキー昇順で安定
-- フォルダサムネイル: 更新日時ではなくファイル名の自然順先頭の画像を使う（`1.jpg` → `2.jpg` → `10.jpg`）。
-  並び順設定や走査順に依存せず、先頭画像の削除・リネームで次の画像に切り替わる
-- 除外フォルダ: 一覧メニューから除外、設定画面から解除。親フォルダは配下に適用し、元ファイルは変更しない
-- フォルダ一覧: 1〜4列のグリッド表示。列数は再起動後も維持
-- 検索: フォルダ名の部分一致（大文字小文字無視・日本語対応）。キャッシュ済みデータのみを対象
-- フォルダお気に入り: セルの長押しメニューから登録/解除し、「お気に入りのみ」で絞り込み。検索・除外と併用可能
-- フォルダ操作: 短押しで開く、長押し＋ハプティックでお気に入り/除外メニュー。⋮は常時表示しない
-- 高速スクロール: フォルダ一覧・画像一覧の右端つまみをドラッグして先頭/末尾へ移動
-- 画像の並び: ファイル名の自然順昇順（数字列を数値比較）。DB v5 のソートキーとインデックスを使用し、
-  既存キャッシュはフォルダを開いたときに遅延バックフィル
-- 画像お気に入り: ビューアの★でワンタップ登録/解除。フォルダお気に入りと独立。
-  カード右上の星からも直接切り替え（登録=黄色★、未登録=輪郭☆）
-- お気に入り画像: オーバーフローメニューからフォルダ別/全件表示。全件はフォルダ更新日時順→自然順で連結
-- スクロール復元: フォルダ内画像一覧はアンカーID、フォルダ一覧は並び順ごとのアンカーフォルダキーと
-  ピクセルオフセットを Room に保存し、再入場・再起動後に復元。検索/お気に入り絞り込み中の位置は保存しない
-- 画像グリッド: 2〜6列を表示設定から選択。列数はフォルダ一覧とは独立して再起動後も維持し、
-  列数変更時は現在見ている画像を基準に位置を保つ。6列では星を縮小して画像を隠しすぎない
-- ビューア: 画像のシングルタップでヘッダー・ステータスバー・ナビゲーションバーを隠す没入型表示。
-  ページ移動後も状態を維持し、再タップで復帰。ダブルタップズームとは競合しない
-- ページスクラバー: ビューア下部の細いスライダーで大量画像を移動。サムネイルは出さず、
-  ドラッグ中はラベルだけ更新、離した時だけ1回ジャンプする
-- ズーム: ダブルタップした位置を中心に2倍拡大。等倍復帰・ピンチ・パンも画像外へはみ出さない
-- 画像グリッド: ヘッダーからお気に入りのみ表示・ファイル名検索。読み込み済みリストを
-  メモリ上で絞り、MediaStore再走査や追加デコードは行わない
-- 共有/情報: ビューアのメニューから共有、ファイル名・パス・日時・サイズ・解像度を表示
-- ランダムジャンプ: ビューアのサイコロボタンで同じフォルダ内の別の画像へ即座に移動。
-  現在の画像は可能な限り避け、画面履歴は増やさない。戻ると通常の一覧へ復帰し、
-  最後に表示していた画像が見える位置へスクロールする
-- 前後フォルダ移動: ビューアのメニューから前後のフォルダへ移動できる。フォルダの順序は
-  一覧で適用中の並び順・検索・お気に入り・タグ絞り込みを引き継ぐ。次のフォルダは先頭画像、
-  前のフォルダは末尾画像から開き、戻ると移動先フォルダの画像一覧へ復帰する
-- 前回の続き: 最後に開いたフォルダ・画像を1件保存し、起動時にフォルダ一覧上部へカード表示。
-  タップでその画像付近へ復帰し、×で履歴を消せる。表示設定でカードの表示/非表示を切り替えられる（既定は表示）
-- 詳細から戻る: 最後に閲覧した画像 ID を一覧へ返し、画面内なら位置を維持、
-  画面外ならその画像が見える位置へ復帰。削除時は近傍インデックスへフォールバック
-- ヘッダー: 画像一覧のフォルダ名を1行省略表示し、タップで全文ダイアログ
-- フォルダタグ: フォルダに複数のタグを付与でき、既存タグを検索して選ぶか、その場で新規作成できる。
-  検索結果では複数フォルダを選んで一括付与（対象件数を明示、既存タグは消さない）。
-  タグでの絞り込みは OR / AND を明示して切り替え、タグの名称変更・削除もできる。
-  DB v8 の `tags` / `folder_tags` に保存し、再起動後も維持する
-- 画像グリッド列数: 縦向き・横向きで別々に保存し、回転時にその向きの値へ自動で切り替える。
-  旧バージョンの単一設定は縦横の初期値として引き継ぐ
-- ピンチ列数: 写真一覧で2本指のピンチイン/アウトにより一時的に列数を変えられる。
-  保存設定は変更せず、指を離すと元の列数へ戻る（フォルダ一覧では無効）
-- テーマ: 端末設定にかかわらず常時ダーク。起動時の白フラッシュを防止
-- 表示名/アイコン: ランチャー名は Pictobi。重なった写真カードに小鳥が止まるオリジナルデザインで、
-  adaptive icon（背景・前景）と Android 13+ の monochrome、Android 12+ のスプラッシュ画面を統一
-- 並び順: 更新日時順 / 最近閲覧順を切り替え可能。設定とスクロール位置は並び順ごとに独立して再起動後も維持
-- 状態復元: ViewModel + SavedStateHandle（画像一覧・ビューア）と Room（スクロール位置）を併用
-- テスト: Robolectric による Room DAO 検証、差分計算・同期ポリシー・ViewModel の単体テスト (`gradlew :app:testDebugUnitTest`)、
-  端末入力を使うピンチ操作の instrumented test (`gradlew :app:connectedDebugAndroidTest`)
-
-PR #8 は main にマージ済み。2026-11-10 に OPPO Reno13 A (ColorOS 16.0.5 / Android 16 / API 36) で実機検証を実施した。
-画像 350,955 件・フォルダ 2,640 件で、キャッシュあり起動 TotalTime は平均 1.35 秒、一覧初回表示は 1.5〜2.1 秒。
-一覧↔詳細の 100 往復で空白表示・クラッシュなし。参考目標 200ms はこの規模では未達。
-フォルダ一覧のスクロール位置は LATEST/RECENT で独立して復元し、FastScroller・絞り込み・列数変更後も
-破綻しないことを確認した（#28）。SD カード抜き差し・権限拒否時の挙動は未検証で、
-詳細は [実機検証手順](docs/device-verification.md) に記録している。
-
-2026-11-13 にはタグ・縦横別列数・ピンチ列数・代表サムネイルの自然順統一・
-前回の続きカードの表示設定・ランダムジャンプ・前後フォルダ移動まで実機で確認した
-（同上のドキュメント 12〜16 章）。
-
-## 対応OS・権限
+## 動作環境
 
 | 項目 | 内容 |
 | --- | --- |
-| 対応OS | Android 10（API 29）以上 |
+| 対応 OS | Android 10（API 29）以上 |
 | 動作確認端末 | OPPO Reno13 A（CPH2699 / Android 16 / ColorOS 16.0.5） |
-| 必要な権限 | 写真と動画の閲覧（`READ_MEDIA_IMAGES`、Android 12 以前は `READ_EXTERNAL_STORAGE`） |
-| ネットワーク | 使用しない（完全オフライン） |
-| 広告・課金・アカウント | なし |
+| 必要権限 | 写真と動画の閲覧（`READ_MEDIA_IMAGES` / Android 12 以前は `READ_EXTERNAL_STORAGE`） |
+| ネットワーク | 不使用（完全オフライン） |
 
-権限は初回起動時に要求します。拒否した場合もキャッシュ済みの一覧は表示され、
-画面上部に許可を促す案内が出ます。
+権限を拒否してもキャッシュ済みの一覧は表示され、案内バナーが出ます。
+
+## 技術スタック
+
+Kotlin · Jetpack Compose · Room · Coil · MediaStore · Coroutines/Flow
+
+メタデータは Room、サムネイルはディスク、表示中と前後の画像は RAM に置きます。
+元画像を丸ごと RAM に保持しない設計です。
+
+## ビルド
+
+Android SDK（compileSdk 36）と JDK 17 以上が必要です。
+
+```bash
+./gradlew :app:testDebugUnitTest   # 単体テスト
+./gradlew :app:assembleDebug       # デバッグ APK
+./gradlew :app:lintDebug           # lint
+```
+
+Windows では環境確認からテスト・ビルドまでスクリプトでまとめて実行できます。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build-and-test.ps1
+```
+
+実機（OPPO Reno13 A）での導入・計測は `scripts\device.ps1` を使います。
+詳細は [ビルド環境](docs/build-environment.md) / [スクリプト一覧](docs/scripts.md)。
+
+## 品質
+
+- **テスト:** 198 件（Robolectric による Room DAO、同期ポリシー、ViewModel、純粋ロジック）
+- **CI:** push / pull request で単体テストと debug ビルドを自動実行
+- **実機検証:** 画像 350,973 件・フォルダ 2,640 件で起動・復帰・100往復の画面遷移を確認
+- **起動時間:** キャッシュありで約 1.4〜2.4 秒（35万枚規模。参考目標 200ms は未達）
 
 ## 既知の制限
 
 - SD カードの抜き差し・切断時の挙動は未検証
-- 権限を拒否した状態での動作は限定的（キャッシュ表示のみ）
-- 画像の削除・移動はアプリ内では行わない（端末の標準ギャラリーを使う）
-- 起動時間は画像 35 万件規模で約 1.4〜2.4 秒（参考目標 200ms は未達）
-- 端末を買い替えると、お気に入り・タグは引き継がれない（下記バックアップ参照）
+- 権限を拒否した状態ではキャッシュ表示のみ
+- 画像の削除・移動は行わない（端末の標準ギャラリーを使う）
+- 端末の買い替えでお気に入り・タグは引き継がれない（設定のみ Auto Backup 対象）
+- 他機種での網羅的な動作保証はしない
+
+## コントリビューション
+
+Issue・Pull Request を歓迎します。
+
+- バグ報告・要望は [Issues](https://github.com/tonbiattack/fastest-picture-viewer/issues) へ
+- 変更は `main` から `feature/<topic>` / `fix/<topic>` の短命ブランチを切って PR を送ってください
+- PR を出す前に `./gradlew :app:testDebugUnitTest :app:lintDebug` が通ることを確認してください
+- 実機でしか確認できない項目は、確認した端末と結果を PR に書いてください
+
+開発方針とブランチ運用は [AGENTS.md](AGENTS.md) にまとめています。
+
+## ドキュメント
+
+| ドキュメント | 内容 |
+| --- | --- |
+| [仕様書](docs/specification.md) | 機能要件・データ設計・受け入れ条件 |
+| [実機検証](docs/device-verification.md) | 検証項目・実測値・未実施項目 |
+| [APK の導入・更新](docs/install-and-update.md) | インストールとトラブルシューティング |
+| [リリース手順](docs/release.md) | 署名・タグ・GitHub Releases |
+| [署名鍵の運用](docs/signing-policy.md) | 鍵の作成・保管・バックアップ |
+| [ビルド環境](docs/build-environment.md) | Windows 11 のセットアップ |
+| [スクリプト](docs/scripts.md) | ビルド・実機操作・UI 補助 |
+| [UX バックログ](docs/ux-backlog.md) | 採用・保留・不採用の判断 |
 
 ## プライバシー
 
-端末内の画像をオフラインで閲覧する方針です。画像や閲覧履歴を外部サーバへ送信する機能は設けません。
+端末内の画像をオフラインで閲覧します。解析 SDK・広告・トラッキングは含みません。
 
-### バックアップ（Android Auto Backup）
-
-`allowBackup` は有効のままですが、画像メタ情報の Room DB（実機で約 295MB）は
-Auto Backup の上限（25MB）を超えて失敗するため、バックアップ対象から除外しています
-（`app/src/main/res/xml/backup_rules.xml` と `data_extraction_rules.xml`）。
+Auto Backup は巨大な Room DB（実機で約 295MB）が上限を超えるため対象から除外し、
+列数・並び順・前回の続きなどの設定のみをバックアップします。
 
 | データ | バックアップ |
 | --- | --- |
-| 列数・並び順・前回の続きなどの設定（SharedPreferences） | 対象 |
-| 画像メタ情報・お気に入り・タグ（Room DB） | **対象外**（サイズ超過のため） |
+| 設定（列数・並び順・前回の続きなど） | 対象 |
+| 画像メタ情報・お気に入り・タグ（Room DB） | 対象外（サイズ超過のため） |
 | サムネイルのキャッシュ | 対象外（再生成できる） |
 
-端末を買い替えた場合、設定は引き継げますが、お気に入り・タグは引き継げません。
-必要なら移行前にアプリ内で控えを取ってください。
-
-## インストール（APK）
-
-Google Play では配布していません。APK を直接インストールします。
-
-### 初回
-
-1. [Releases](https://github.com/tonbiattack/fastest-picture-viewer/releases) から最新の `Pictobi-<version>.apk` を端末にダウンロード
-2. 端末の「設定 → セキュリティ」で「提供元不明のアプリ」を、使ったブラウザ/ファイルアプリについて許可
-3. ダウンロードした APK をタップしてインストール
-4. 起動して「写真と動画の閲覧」を許可
-
-最新版は **v0.1.0**（[リリースページ](https://github.com/tonbiattack/fastest-picture-viewer/releases/tag/v0.1.0)）。
-
-### 更新
-
-同じ署名鍵の APK なら、上書きインストールで**アプリ内データは保持**されます。
-上の手順で新しい APK を入れるだけで更新できます。
-
-### PC から入れる場合（開発者向け）
-
-```powershell
-adb install -r .\Pictobi-<version>.apk
-```
-
-詳しくは [APK の導入・更新手順](docs/install-and-update.md) を参照してください。
-
-### インストール時の注意
-
-- **署名が異なる APK は上書きできません**（`INSTALL_FAILED_UPDATE_INCOMPATIBLE`）。
-  その場合は一度アンインストールが必要で、アプリ内データは失われます（写真は消えません）
-- 配布 APK の SHA-256 は各リリースページに記載しています。照合してから導入すると安全です
+端末を買い替えると設定は引き継げますが、お気に入り・タグは引き継げません。
 
 ## ライセンス
 
-[MIT License](LICENSE)。
+[MIT License](LICENSE)
 
-本アプリは以下のオープンソースライブラリを使用しています（いずれも Apache License 2.0）:
-AndroidX（Core / Lifecycle / Activity / Navigation）、Jetpack Compose、Room、Kotlin Coroutines、
-Coil。著作権表示は各プロジェクトに帰属します。
+使用しているオープンソースライブラリ（いずれも Apache License 2.0）:
+AndroidX、Jetpack Compose、Room、Kotlin Coroutines、Coil。
 
-「最速」という表現は本リポジトリ内での設計方針であり、他アプリとの比較ベンチマークは未実施です。
-
-## ビルド・テスト
-
-```bash
-# 単体テスト (Robolectric / 純粋ロジック)
-gradlew :app:testDebugUnitTest
-
-# デバッグ APK のビルド
-gradlew :app:assembleDebug
-
-# 実機での instrumented test (ピンチ操作など端末入力が必要な検証)
-gradlew :app:connectedDebugAndroidTest
-```
-
-Windows では環境確認とテスト・ビルドをまとめて再実行できます。
-
-```powershell
-# 初回のみ: cmdline-tools の配置と環境変数設定
-powershell -ExecutionPolicy Bypass -File scripts\setup-android-env.ps1
-
-# 環境確認
-powershell -ExecutionPolicy Bypass -File scripts\check-env.ps1
-
-# 単体テスト + debug APK ビルド
-powershell -ExecutionPolicy Bypass -File scripts\build-and-test.ps1
-
-# 実機（接続・導入・計測・ログ）
-powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Devices
-```
-
-実機検証の詳細は [実機（OPPO Reno13 A）検証手順](docs/device-verification.md) を参照してください。
-
-Android SDK (compileSdk 36) と JDK 17 以上が必要です。SDK の場所が標準でない場合は `local.properties` に `sdk.dir` を設定してください。詳細は [Windows 11 ビルド・テスト環境手順](docs/build-environment.md) を参照してください。
-
-## APKの導入・更新（Windows PowerShell）
-
-`main` を最新化し、変更は `feature/<topic>` / `fix/<topic>` の短命ブランチで作業して PR 経由で main にマージする。
-
-### データを残して更新する（同じ署名のAPKが入っている場合）
-
-```powershell
-git switch main
-git pull --ff-only origin main
-.\gradlew.bat :app:testDebugUnitTest
-.\gradlew.bat :app:assembleDebug
-adb devices
-adb install -r .\app\build\outputs\apk\debug\app-debug.apk
-```
-
-`adb install -r` は上書き。**同じ `applicationId` と同じ署名鍵**なら、お気に入り・タグ・設定・キャッシュは残る。
-
-### 新規インストール
-
-```powershell
-.\gradlew.bat :app:assembleDebug
-adb install .\app\build\outputs\apk\debug\app-debug.apk
-```
-
-### バージョンを上げる
-
-```powershell
-.\gradlew.bat :app:assembleRelease "-Pfpv.versionCode=2" "-Pfpv.versionName=0.2.0"
-```
-
-### スクリプトから実行する
-
-```powershell
-# 接続・インストール状況の確認（バージョンと debug/release の別も表示）
-powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Info
-
-# 上書きインストール（debug）
-powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Install
-
-# 署名済み release APK の上書きインストール
-powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Install -Release
-```
-
-※ debug APK と release APK は**署名鍵が違うため互いに上書きできない**。片方から他方へ移る場合は
-アンインストールが必要で、その場合はアプリ内データが消える（写真は消えない）。
-リリース署名鍵の作成・保管は [署名鍵の運用方針](docs/signing-policy.md)、
-エラー別の対処は [APK の導入・更新手順](docs/install-and-update.md) を参照する。
-
-[個人端末向け受け入れ手順](docs/specification.md#9-個人端末での受け入れテスト)
+「最速」は本プロジェクトの設計方針であり、他アプリとの比較ベンチマークは未実施です。
