@@ -183,6 +183,9 @@ class ImageGridViewModel(
     private var visibleLastIndex = 0
     private var saveJob: Job? = null
 
+    /** 読み込み失敗から実体を確認済みの画像 (Issue #77)。同じ画像で繰り返さない */
+    private val loadErrorCheckedIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     init {
         val key = folderKey
         if (key.isNullOrEmpty()) {
@@ -287,6 +290,26 @@ class ImageGridViewModel(
         visibleFirstIndex = firstIndex
         visibleLastIndex = lastIndex
         onScrollPositionChanged(firstIndex, offsetPx)
+    }
+
+    /**
+     * サムネイルの読み込みに失敗した画像を受ける (Issue #77)。
+     *
+     * OPPO/ColorOS では削除済み画像の行が MediaStore に残るため、実体を確認して
+     * 開けなければ一覧から外す。フォルダ全体ではなく、失敗した画像だけを対象にする。
+     * 同じ画像で何度も確認しないよう記録する。
+     */
+    fun onImageLoadError(image: ImageItem) {
+        if (!loadErrorCheckedIds.add(image.id)) return
+        viewModelScope.launch {
+            val removed = runCatching {
+                repository.verifyImageReadable(image)
+            }.getOrDefault(false)
+            if (!removed) {
+                // 読めた場合は次回また失敗したときに再確認できるようにする
+                loadErrorCheckedIds.remove(image.id)
+            }
+        }
     }
 
     /** スクロール中の位置を軽量に受け取り、500ms の debounce 後に永続化する */

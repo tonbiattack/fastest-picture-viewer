@@ -230,6 +230,24 @@ class FolderListViewModelTest {
         override suspend fun backfillMissingNaturalSortKeys() {
             backfilled = true
         }
+
+
+        override suspend fun verifyFolderReadability(folderKey: String, limit: Int): Int = 0
+
+        override suspend fun verifyImageReadable(item: ImageItem): Boolean = false
+
+        /** Issue #77: 呼ばれたフォルダと、返す件数をテストから制御する */
+        val verifyCalls = mutableListOf<String>()
+        var verifyResult = 0
+
+        override suspend fun verifyFolderFromThumbnailFailure(folderKey: String): Int {
+            verifyCalls += folderKey
+            return verifyResult
+        }
+
+        override suspend fun clearUnreadableImages() = Unit
+
+        override suspend fun validateAllFolders(): Int = 0
     }
 
     @Before
@@ -872,5 +890,110 @@ class FolderListViewModelTest {
         assertEquals(1, repo.tagsFlow.value.size)
         assertEquals("家族", repo.tagsFlow.value.single().displayName)
         assertEquals(setOf(1L), repo.folderTagMap[a])
+    }
+
+    // ---- Issue #77: 実体が読めないフォルダの扱い ----
+
+    private fun folderUi(key: String, name: String = "folder") = FolderUiModel(
+        folderKey = key,
+        volumeName = "v",
+        relativePath = key.substringAfter(':'),
+        folderName = name,
+        imageCount = 1L,
+        latestModifiedSec = 100L,
+        representativeImageUri = "content://img/1"
+    )
+
+    @Test
+    fun `サムネイル失敗でフォルダの実体確認が1回だけ走る`() = runTest {
+        val repo = FakeRepository()
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val target = folderUi(FolderKeys.create("v", "Pictures/gone/"))
+        // 同じフォルダのセルが再コンポーズで何度も失敗通知を出しても、確認は 1 回だけ
+        repeat(3) { vm.onFolderThumbnailError(target) }
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(FolderKeys.create("v", "Pictures/gone/")),
+            repo.verifyCalls
+        )
+    }
+
+    @Test
+    fun `読めたフォルダは次回の失敗で再確認できる`() = runTest {
+        val repo = FakeRepository()
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val target = folderUi(FolderKeys.create("v", "Pictures/maybe/"))
+        repo.verifyResult = 0
+        vm.onFolderThumbnailError(target)
+        advanceUntilIdle()
+
+        // 一時的なデコード失敗だった場合は、また失敗したら再確認する
+        vm.onFolderThumbnailError(target)
+        advanceUntilIdle()
+
+        assertEquals(2, repo.verifyCalls.size)
+    }
+
+    @Test
+    fun `消えたフォルダの前回の続き履歴はクリアされる`() = runTest {
+        val repo = FakeRepository()
+        val key = FolderKeys.create("v", "Pictures/gone/")
+        val store = FakeLastViewedStore(LastViewedFolder(key, "content://img/1", 0, 1L))
+        val vm = FolderListViewModel(repo, FakeViewSettings(), store)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        repo.verifyResult = 5
+        vm.onFolderThumbnailError(folderUi(key))
+        advanceUntilIdle()
+
+        // 消えたフォルダを指したままだと開けないため履歴を消す
+        assertNull(store.lastViewed.value)
+    }
+
+    @Test
+    fun `別フォルダの前回の続き履歴は消さない`() = runTest {
+        val repo = FakeRepository()
+        val gone = FolderKeys.create("v", "Pictures/gone/")
+        val alive = FolderKeys.create("v", "Pictures/alive/")
+        val store = FakeLastViewedStore(LastViewedFolder(alive, "content://img/9", 3, 1L))
+        val vm = FolderListViewModel(repo, FakeViewSettings(), store)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        repo.verifyResult = 5
+        vm.onFolderThumbnailError(folderUi(gone))
+        advanceUntilIdle()
+
+        assertEquals(alive, store.lastViewed.value?.folderKey)
+        assertEquals(3, store.lastViewed.value?.itemIndex)
+    }
+
+    @Test
+    fun `確認処理が例外でも一覧は壊れない`() = runTest {
+        val base = FakeRepository()
+        val repo = object : GalleryRepository by base {
+            override suspend fun verifyFolderFromThumbnailFailure(folderKey: String): Int =
+                throw IllegalStateException("probe failed")
+        }
+        val key = FolderKeys.create("v", "Pictures/a/")
+        base.foldersFlow.value = listOf(summary(key))
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.onFolderThumbnailError(folderUi(key))
+        advanceUntilIdle()
+
+        // 例外が出ても一覧は保持される (表示を守る)
+        assertEquals(1, vm.uiState.value.folders.size)
+        assertEquals(key, vm.uiState.value.folders.single().folderKey)
     }
 }

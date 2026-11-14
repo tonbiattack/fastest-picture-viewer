@@ -9,6 +9,7 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
 import com.tonbiattack.fastestpictureviewer.data.BackupRepository
+import com.tonbiattack.fastestpictureviewer.data.ContentResolverReadableProbe
 import com.tonbiattack.fastestpictureviewer.data.LastViewedStore
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
 import com.tonbiattack.fastestpictureviewer.data.SharedPreferencesLastViewedStore
@@ -45,7 +46,11 @@ class AppContainer(
 
     val database: AppDatabase = AppDatabase.build(context)
     val repository: GalleryRepository =
-        GalleryRepositoryImpl(db = database, scanner = MediaStoreScanner(context))
+        GalleryRepositoryImpl(
+            db = database,
+            scanner = MediaStoreScanner(context),
+            readableProbe = ContentResolverReadableProbe(context)
+        )
 
     /** フォルダ一覧の列数など、画面設定の永続化 */
     val folderViewSettings: FolderViewSettings = SharedPreferencesFolderViewSettings(context)

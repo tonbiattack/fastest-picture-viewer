@@ -13,6 +13,9 @@ import kotlinx.coroutines.flow.Flow
  * 並び順は仕様書に基づく:
  * - フォルダ一覧: 最新更新日時の降順。同日時はフォルダキー昇順で安定させる
  * - フォルダ内画像: ファイル名昇順。同名は mediaId 昇順で安定させる
+ *
+ * 表示系のクエリはすべて [UnreadableImageEntity] を除外する (Issue #77)。
+ * 実体を開けない行が残ると、壊れたサムネイルと「開いても空のフォルダ」になるため。
  */
 @Dao
 interface ImageItemDao {
@@ -34,6 +37,10 @@ interface ImageItemDao {
                   OR (excluded.relativePath <> ''
                       AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
               )
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM unreadable_images AS unreadable
+            WHERE unreadable.itemId = images.id
         )
         GROUP BY folderKey
         ORDER BY latestModifiedSec DESC, folderKey ASC
@@ -73,6 +80,10 @@ interface ImageItemDao {
                       AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
               )
         )
+          AND NOT EXISTS (
+            SELECT 1 FROM unreadable_images AS unreadable
+            WHERE unreadable.itemId = images.id
+        )
         GROUP BY folderKey
         """
     )
@@ -91,6 +102,10 @@ interface ImageItemDao {
                     OR (excluded.relativePath <> ''
                         AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
                 )
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM unreadable_images AS unreadable
+              WHERE unreadable.itemId = images.id
           )
         ORDER BY naturalSortKey ASC, sortName ASC, mediaId ASC
         """
@@ -138,6 +153,10 @@ interface ImageItemDao {
                         AND substr(i.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
                 )
           )
+          AND NOT EXISTS (
+              SELECT 1 FROM unreadable_images AS unreadable
+              WHERE unreadable.itemId = i.id
+          )
         ORDER BY latestFolder.maxModified DESC, i.folderKey ASC,
                  i.naturalSortKey ASC, i.sortName ASC, i.mediaId ASC
         """
@@ -183,4 +202,85 @@ interface ImageItemDao {
     /** 走査結果に存在しない画像を ID 指定で削除する */
     @Query("DELETE FROM images WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<String>)
+
+    /**
+     * 実体を開けなかった画像を記録する (Issue #77)。
+     * 既に記録済みなら日時だけ更新する。
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertUnreadable(items: List<UnreadableImageEntity>)
+
+    /** 開けなかった記録のうち、指定 ID のものを消す (ファイルが復活したとき用) */
+    @Query("DELETE FROM unreadable_images WHERE itemId IN (:itemIds)")
+    suspend fun deleteUnreadable(itemIds: List<String>)
+
+    /** 指定ボリュームの「開けなかった」記録をすべて消す (再走査のやり直し用) */
+    @Query("DELETE FROM unreadable_images WHERE volumeName = :volumeName")
+    suspend fun clearUnreadableByVolume(volumeName: String)
+
+    /** 指定フォルダの「開けなかった」記録を消す (フォルダを開いたときの再判定用) */
+    @Query("DELETE FROM unreadable_images WHERE folderKey = :folderKey")
+    suspend fun clearUnreadableByFolder(folderKey: String)
+
+    /** 「開けなかった」記録をすべて消す (手動更新で再判定するため) */
+    @Query("DELETE FROM unreadable_images")
+    suspend fun clearUnreadableImages()
+
+    /** 開けなかった記録の総数 (診断・ログ用) */
+    @Query("SELECT COUNT(*) FROM unreadable_images")
+    suspend fun countUnreadable(): Long
+
+    /**
+     * 指定フォルダの画像をすべて「開けなかった」として記録する (Issue #77)。
+     *
+     * フォルダごと削除されると、配下の全画像が同じ理由で開けなくなる。
+     * 1 件ずつ確認せず、代表 1 件の判定結果をフォルダ全体へ適用することで、
+     * 大量フォルダでも検証コストを 1 回のプローブに抑える。
+     */
+    @Query(
+        """
+        INSERT OR REPLACE INTO unreadable_images (itemId, folderKey, volumeName, detectedAtSec)
+        SELECT id, folderKey, volumeName, :detectedAtSec FROM images WHERE folderKey = :folderKey
+        """
+    )
+    suspend fun markFolderUnreadable(folderKey: String, detectedAtSec: Long)
+
+    /**
+     * 複数フォルダをまとめて「開けなかった」として記録する (Issue #77)。
+     * SQLite の変数上限を避けるため、呼び出し側で分割して渡す。
+     */
+    @Query(
+        """
+        INSERT OR REPLACE INTO unreadable_images (itemId, folderKey, volumeName, detectedAtSec)
+        SELECT id, folderKey, volumeName, :detectedAtSec FROM images WHERE folderKey IN (:folderKeys)
+        """
+    )
+    suspend fun markFoldersUnreadable(folderKeys: List<String>, detectedAtSec: Long)
+
+    /** 実体読み取り検証の対象をフォルダごとに 1 件返す (Issue #77) */
+    @Query(
+        """
+        SELECT id AS id,
+               folderKey AS folderKey,
+               volumeName AS volumeName,
+               MIN(
+                   (CASE WHEN naturalSortKey = '' THEN '1' ELSE '0' END) ||
+                   naturalSortKey || char(1) ||
+                   sortName || char(1) ||
+                   printf('%020d', mediaId)
+               ) AS minOrderKey
+        FROM images INDEXED BY index_images_folderKey_naturalSortKey_sortName_mediaId
+        WHERE NOT EXISTS (
+            SELECT 1 FROM excluded_folders AS excluded
+            WHERE excluded.volumeName = images.volumeName
+              AND (
+                  (excluded.relativePath = '' AND images.relativePath = '')
+                  OR (excluded.relativePath <> ''
+                      AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
+              )
+        )
+        GROUP BY folderKey
+        """
+    )
+    suspend fun getFolderReadabilityTargets(): List<FolderReadabilityTargetRow>
 }

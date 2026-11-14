@@ -16,6 +16,13 @@ interface SyncStateDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(state: SyncStateEntity)
 
+    /**
+     * 実体読み取り検証の実施時刻だけを更新する (Issue #77)。
+     * 同期時刻 (lastSinceSec / lastFullSyncSec) を巻き戻さないよう、専用の更新にする。
+     */
+    @Query("UPDATE sync_state SET lastValidationSec = :validationSec WHERE id = 1")
+    suspend fun updateLastValidationSec(validationSec: Long)
+
     @Query("DELETE FROM sync_state")
     suspend fun clear()
 }

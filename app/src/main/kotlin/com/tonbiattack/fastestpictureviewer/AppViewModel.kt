@@ -18,16 +18,29 @@ class AppViewModel(private val repository: GalleryRepository) : ViewModel() {
 
     private var lastAutoSyncParts = Long.MIN_VALUE
 
+    /** 実体読み取り検証を開始済みか (1 プロセス 1 回、Issue #77) */
+    private var validationStarted = false
+
     /** MediaStore 変更通知のデバウンス用。連続通知を 1 回の同期にまとめる */
     private var mediaChangeJob: Job? = null
 
     /** アクセスレベルの変化を受け取る。許可されていれば自動同期を開始する */
     fun onAccessLevelChanged(level: MediaAccessLevel) {
         if (level == MediaAccessLevel.Denied) return
-        requestSync(SyncMode.AUTO, canDelete = level == MediaAccessLevel.Full)
         // 旧DBの自然順キー不足を埋め、フォルダ代表サムネイルを正しい先頭画像に揃える (Issue #49)
         viewModelScope.launch {
             repository.backfillMissingNaturalSortKeys()
+        }
+        // 走査を終えてから実体を検証する (Issue #77)。同期と並行させると
+        // 古いキャッシュを対象に判定してしまうため、順に実行する
+        viewModelScope.launch {
+            runCatching {
+                repository.sync(
+                    mode = SyncMode.AUTO,
+                    canDelete = level == MediaAccessLevel.Full
+                )
+            }
+            validateFoldersOnce()
         }
     }
 
@@ -58,7 +71,32 @@ class AppViewModel(private val repository: GalleryRepository) : ViewModel() {
 
     /** 手動更新ボタンからの完全同期要求 */
     fun requestManualFullSync(level: MediaAccessLevel) {
-        requestSync(SyncMode.FULL, canDelete = level == MediaAccessLevel.Full)
+        // 手動更新では「開けなかった」記録を消して再判定する。
+        // ファイルを戻した・カードを挿し直した場合に一覧へ復帰させるため (Issue #77)
+        viewModelScope.launch {
+            runCatching {
+                repository.sync(
+                    mode = SyncMode.FULL,
+                    canDelete = level == MediaAccessLevel.Full
+                )
+            }
+            repository.clearUnreadableImages()
+            repository.validateAllFolders()
+        }
+    }
+
+    /** 起動時の実体検証。1 プロセスにつき 1 回だけ実行する (Issue #77) */
+    private fun validateFoldersOnce() {
+        if (validationStarted) return
+        validationStarted = true
+        viewModelScope.launch {
+            try {
+                repository.validateAllFolders()
+            } catch (t: Exception) {
+                // 検証の失敗は表示に影響させない。開けなかった記録は次回に持ち越す
+                validationStarted = false
+            }
+        }
     }
 
     private fun requestSync(mode: SyncMode, canDelete: Boolean) {

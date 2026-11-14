@@ -19,10 +19,12 @@ import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
 import com.tonbiattack.fastestpictureviewer.data.NaturalSortKeyUpdate
 import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
+import com.tonbiattack.fastestpictureviewer.data.ImageReadableProbe
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
 import com.tonbiattack.fastestpictureviewer.data.SyncStateEntity
 import com.tonbiattack.fastestpictureviewer.data.TagEntity
 import com.tonbiattack.fastestpictureviewer.data.TagWithCount
+import com.tonbiattack.fastestpictureviewer.data.UnreadableImageEntity
 import com.tonbiattack.fastestpictureviewer.data.VolumeSyncStateEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -49,7 +51,14 @@ class GalleryRepositoryImpl(
     /** 差分の再走査を優しくするための緩衝 (秒)。端末のタイマ精度のずれを吸収する */
     private val differentialBufferSec: Long = 60L,
     /** 現在時刻取得 (テスト差し替え用) */
-    private val nowSeconds: () -> Long = { System.currentTimeMillis() / 1000 }
+    private val nowSeconds: () -> Long = { System.currentTimeMillis() / 1000 },
+    /**
+     * 画像の実体を開けるかの判定 (Issue #77)。null なら検証しない (テストの後方互換)。
+     *
+     * OPPO/ColorOS では削除済みファイルの MediaStore 行が残り、走査で毎回返る。
+     * 開けない代表画像が見つかったらフォルダ単位で非表示にする。
+     */
+    private val readableProbe: ImageReadableProbe? = null
 ) : GalleryRepository {
 
     private val imageDao = db.imageItemDao()
@@ -133,6 +142,205 @@ class GalleryRepositoryImpl(
                 }
             }
         }
+
+    /**
+     * フォルダ内の画像を実際に開いて確認する (Issue #77)。
+     *
+     * OPPO/ColorOS では削除済みファイルの行が MediaStore に残り、走査結果からは
+     * 消えない。そこで URI を開けるか確認し、開けなかったものを記録して一覧から外す。
+     * 全件ではなく [limit] 件までに制限し、スクロールを妨げない。
+     */
+    /**
+     * フォルダ内の画像を実際に開いて確認する (Issue #77)。
+     *
+     * OPPO/ColorOS では削除済みファイルの行が MediaStore に残り、走査結果からは
+     * 消えない。そこで URI を開けるか確認し、開けなかったものを記録して一覧から外す。
+     *
+     * 「フォルダごと消えた」と「一部の画像だけ欠けた」を区別するため、代表が
+     * 開けない場合は他の画像も数件確認する ([FolderReadabilityAssessor])。
+     * 代表 1 件だけで判断すると、生きているフォルダを丸ごと隠してしまう。
+     */
+    override suspend fun verifyFolderReadability(folderKey: String, limit: Int): Int {
+        val probe = readableProbe ?: return 0
+        if (limit <= 0) return 0
+        return withContext(Dispatchers.IO) {
+            val items = imageDao.getImages(folderKey)
+            if (items.isEmpty()) return@withContext 0
+
+            val now = nowSeconds()
+            when (val result = FolderReadabilityAssessor(probe).assess(items)) {
+                FolderReadability.Healthy -> {
+                    // 読めるようになっていれば、以前の記録を取り消して一覧へ戻す (自己修復)
+                    imageDao.clearUnreadableByFolder(folderKey)
+                    0
+                }
+
+                is FolderReadability.PartiallyUnreadable -> {
+                    // 以前にフォルダ全体を非表示にしていた場合、その記録を先に消す。
+                    // 残したままだと読める画像まで非表示のままになる (実機で発生)
+                    imageDao.clearUnreadableByFolder(folderKey)
+                    imageDao.upsertUnreadable(
+                        result.items.map { item ->
+                            UnreadableImageEntity(
+                                itemId = item.id,
+                                folderKey = item.folderKey,
+                                volumeName = item.volumeName,
+                                detectedAtSec = now
+                            )
+                        }
+                    )
+                    result.items.size
+                }
+
+                is FolderReadability.FolderGone -> {
+                    imageDao.markFolderUnreadable(folderKey, now)
+                    result.items.size
+                }
+            }
+        }
+    }
+
+    override suspend fun clearUnreadableImages() {
+        withContext(Dispatchers.IO + NonCancellable) {
+            imageDao.clearUnreadableImages()
+            // 次回起動時の全件検証をやり直せるようにする (Issue #77)
+            resetValidationClock()
+        }
+    }
+
+    /** 実体検証の実施時刻を 0 に戻し、次回の起動時に再検証させる */
+    private suspend fun resetValidationClock() {
+        val state = syncStateDao.get() ?: SyncStateEntity(
+            lastSinceSec = 0L,
+            lastFullSyncSec = 0L
+        )
+        syncStateDao.upsert(state.copy(lastValidationSec = 0L))
+    }
+
+    /**
+     * サムネイル読み込み失敗を起点にフォルダを検証する (Issue #77)。
+     *
+     * 表示側で「失敗した」通知を受けたフォルダだけを対象にするため、
+     * 起動時の全件検証より負荷が低い。代表 1 件を開いて確認し、
+     * 実際に開けなければフォルダ全体を非表示にする。
+     */
+    override suspend fun verifyFolderFromThumbnailFailure(folderKey: String): Int =
+        verifyFolderReadability(folderKey)
+
+    /**
+     * 画像 1 件の実体を確認し、開けなければ表示から除外する (Issue #77)。
+     * グリッドの失敗通知から呼ぶ。フォルダ全体ではなく 1 件だけを対象にする。
+     */
+    override suspend fun verifyImageReadable(item: ImageItem): Boolean {
+        val probe = readableProbe ?: return false
+        if (probe.isReadable(item.uri)) return false
+        withContext(Dispatchers.IO + NonCancellable) {
+            imageDao.upsertUnreadable(
+                listOf(
+                    UnreadableImageEntity(
+                        itemId = item.id,
+                        folderKey = item.folderKey,
+                        volumeName = item.volumeName,
+                        detectedAtSec = nowSeconds()
+                    )
+                )
+            )
+        }
+        return true
+    }
+
+    /**
+     * 全フォルダの代表画像を検証する (Issue #77)。
+     *
+     * フォルダごとに代表 1 件だけプローブする (実機で 1 件あたり約 17ms)。
+     * 2,667 フォルダなら 40〜50 秒程度。起動直後の背景で実行し、
+     * UI の表示は Room キャッシュのまま進める。前回から [VALIDATION_INTERVAL_SEC]
+     * 以内なら再実行しない。
+     */
+    override suspend fun validateAllFolders(): Int = withContext(Dispatchers.IO) {
+        val probe = readableProbe ?: return@withContext 0
+        val startedSec = nowSeconds()
+
+        // 起動のたびに全件を開くと無駄なので、一定期間は再検証しない。
+        // 手動更新では記録を消して再判定できるようにしてある
+        val state = syncStateDao.get()
+        if (state != null &&
+            startedSec - state.lastValidationSec < VALIDATION_INTERVAL_SEC
+        ) {
+            return@withContext 0
+        }
+
+        val startedAtMs = SystemClock.elapsedRealtime()
+        val targets = imageDao.getFolderReadabilityTargets()
+        if (targets.isEmpty()) return@withContext 0
+
+        // まず代表 1 件だけ確認する (2,667 フォルダでも 1 回ずつで済む)。
+        // 開けなかったフォルダだけ、フォルダ全体の判定に進む
+        val suspect = ArrayList<String>()
+        for (target in targets) {
+            if (!probe.isReadable(target.id)) suspect += target.folderKey
+        }
+
+        // 失敗が多すぎる場合は SD カードの取り外しなど一時的な問題とみなすと判断したら、
+        // 記録しない。実在するフォルダを大量に隠すほうが被害が大きいため (Issue #77)
+        val record = ReadabilityValidation.shouldRecord(targets.size, suspect.size)
+        if (!record) {
+            ReadabilityValidation.skipReason(targets.size, suspect.size)?.let {
+                Log.w("FPV-Perf", it)
+            }
+            state ?: syncStateDao.upsert(
+                SyncStateEntity(lastSinceSec = 0L, lastFullSyncSec = 0L)
+            )
+            syncStateDao.updateLastValidationSec(startedSec)
+            return@withContext 0
+        }
+
+        // 代表が開けないフォルダだけ「丸ごと消えた」か「一部だけ欠けた」かを切り分ける。
+        // 記録は判定結果で置き換える。古い記録が残ると復活した画像が
+        // 非表示のままになるため (自己修復)
+        val assessor = FolderReadabilityAssessor(probe)
+        val goneFolders = ArrayList<String>(suspect.size)
+        val partial = ArrayList<ImageItem>()
+        val now = nowSeconds()
+        for (folderKey in suspect) {
+            // このフォルダの記録は作り直すので、先に消す
+            imageDao.clearUnreadableByFolder(folderKey)
+            when (val result = assessor.assess(imageDao.getImages(folderKey))) {
+                FolderReadability.Healthy -> Unit
+                is FolderReadability.PartiallyUnreadable -> partial += result.items
+                is FolderReadability.FolderGone -> goneFolders += folderKey
+            }
+        }
+        if (partial.isNotEmpty()) {
+            imageDao.upsertUnreadable(
+                partial.map { item ->
+                    UnreadableImageEntity(
+                        itemId = item.id,
+                        folderKey = item.folderKey,
+                        volumeName = item.volumeName,
+                        detectedAtSec = now
+                    )
+                }
+            )
+        }
+        goneFolders.chunked(UNREADABLE_CHUNK_SIZE).forEach { chunk ->
+            imageDao.markFoldersUnreadable(chunk, now)
+        }
+
+        // 次回の再検証までの間隔を計る
+        state ?: syncStateDao.upsert(
+            SyncStateEntity(lastSinceSec = 0L, lastFullSyncSec = 0L)
+        )
+        syncStateDao.updateLastValidationSec(startedSec)
+
+        Log.i(
+            "FPV-Perf",
+            "readability validation: ${targets.size} folders, ${suspect.size} suspect, " +
+                "${goneFolders.size} gone, ${partial.size} partial, " +
+                "${SystemClock.elapsedRealtime() - startedAtMs}ms"
+        )
+        goneFolders.size
+    }
 
     override fun observeFavorites(): Flow<List<FavoriteImageEntity>> = favoriteDao.observeAll()
 
@@ -517,6 +725,9 @@ class GalleryRepositoryImpl(
     companion object {
         private const val DELETE_CHUNK_SIZE = 500
 
+        /** 「開けなかった」記録の一括書き込みを分割する件数 (SQLite 変数上限対策) */
+        private const val UNREADABLE_CHUNK_SIZE = 300
+
         /** 自然順キーのバックフィルを 1 回に処理する件数 */
         private const val BACKFILL_BATCH_SIZE = 500
 
@@ -525,5 +736,8 @@ class GalleryRepositoryImpl(
 
         /** 削除を反映するための定期全件走査の間隔 (24 時間) */
         private const val FULL_SCAN_INTERVAL_SEC = 24L * 60L * 60L
+
+        /** 実体読み取り検証の再実行間隔 (24 時間、Issue #77) */
+        private const val VALIDATION_INTERVAL_SEC = 24L * 60L * 60L
     }
 }

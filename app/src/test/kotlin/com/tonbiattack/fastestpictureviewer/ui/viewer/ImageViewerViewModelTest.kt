@@ -108,6 +108,17 @@ class ImageViewerViewModelTest {
         override suspend fun renameTag(tagId: Long, rawName: String): Boolean = true
         override suspend fun deleteTag(tagId: Long) = Unit
         override suspend fun backfillMissingNaturalSortKeys() = Unit
+
+
+        override suspend fun verifyFolderReadability(folderKey: String, limit: Int): Int = 0
+
+        override suspend fun verifyImageReadable(item: ImageItem): Boolean = false
+
+        override suspend fun verifyFolderFromThumbnailFailure(folderKey: String): Int = 0
+
+        override suspend fun clearUnreadableImages() = Unit
+
+        override suspend fun validateAllFolders(): Int = 0
     }
 
     private fun images(count: Int): List<ImageItem> = (0 until count).map { index ->

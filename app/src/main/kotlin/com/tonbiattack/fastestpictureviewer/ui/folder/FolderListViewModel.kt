@@ -243,6 +243,9 @@ class FolderListViewModel(
     private var latestSortMode = FolderSortMode.LATEST
     private var hasPendingScroll = false
 
+    /** サムネイル失敗から実体を確認済みのフォルダ (Issue #77)。同じフォルダで繰り返さない */
+    private val thumbnailCheckedKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     init {
         // 並び順が変わるたびに、その並び順の保存位置を読み直す
         viewModelScope.launch {
@@ -482,6 +485,32 @@ class FolderListViewModel(
     /** 「前回の続き」履歴を消す */
     fun clearResume() {
         lastViewedStore.clear()
+    }
+
+    /**
+     * フォルダ代表サムネイルの読み込み失敗を受ける (Issue #77)。
+     *
+     * OPPO/ColorOS では削除済みフォルダの行が MediaStore に残り、走査では消せない。
+     * 実際に開けなかったフォルダだけを対象に実体を確認し、無ければ一覧から外す。
+     * 同じフォルダで何度も呼ばれないよう、確認済みのキーは記録しておく。
+     */
+    fun onFolderThumbnailError(folder: FolderUiModel) {
+        if (!thumbnailCheckedKeys.add(folder.folderKey)) return
+        viewModelScope.launch {
+            val removed = runCatching {
+                repository.verifyFolderFromThumbnailFailure(folder.folderKey)
+            }.getOrDefault(0)
+            if (removed > 0) {
+                // 消えたフォルダの「前回の続き」が残っていると開けないため、履歴も掃除する
+                val resume = lastViewedStore.lastViewed.value
+                if (resume?.folderKey == folder.folderKey) {
+                    lastViewedStore.clear()
+                }
+            } else {
+                // 読めた場合は次回また失敗したときに再確認できるようにする
+                thumbnailCheckedKeys.remove(folder.folderKey)
+            }
+        }
     }
 
     /** 列数を変更して永続化する */

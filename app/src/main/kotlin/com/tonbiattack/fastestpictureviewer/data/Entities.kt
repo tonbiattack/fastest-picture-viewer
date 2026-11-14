@@ -21,7 +21,14 @@ data class SyncStateEntity(
     @ColumnInfo(name = "lastSinceSec") val lastSinceSec: Long,
 
     /** 前回の完全同期開始時刻 (エポック秒) */
-    @ColumnInfo(name = "lastFullSyncSec") val lastFullSyncSec: Long
+    @ColumnInfo(name = "lastFullSyncSec") val lastFullSyncSec: Long,
+
+    /**
+     * 実体ファイルの読み取り検証を最後に完了した時刻 (エポック秒、Issue #77)。
+     * 0 は未実施。定期的に再検証して、復活したファイルを表示へ戻す。
+     */
+    @ColumnInfo(name = "lastValidationSec", defaultValue = "0")
+    val lastValidationSec: Long = 0L
 )
 
 /**
@@ -180,6 +187,35 @@ data class FolderTagEntity(
 
     /** 付与日時 (エポック秒) */
     @ColumnInfo(name = "addedAtSec") val addedAtSec: Long
+)
+
+/**
+ * 実体ファイルを開けなかった画像 (Issue #77)。
+ *
+ * OPPO/ColorOS では、フォルダごと削除しても MediaStore の行が残ることがある。
+ * その行は走査で毎回返ってくるため、アプリ側の削除判定では消せず、
+ * サムネイルが壊れたまま・フォルダを開いても何も表示されない状態になる。
+ *
+ * そこで「実際に開けなかった」ことを記録し、一覧クエリから除外する。
+ * images そのものは消さない (ファイルが復活したときに再表示できるようにするため)。
+ * 走査でファイルが見つかるようになれば [GalleryRepositoryImpl] が行を消す。
+ */
+@Entity(
+    tableName = "unreadable_images",
+    indices = [Index(value = ["volumeName"]), Index(value = ["folderKey"])]
+)
+data class UnreadableImageEntity(
+    /** 対応する images.id (content URI 文字列) */
+    @PrimaryKey @ColumnInfo(name = "itemId") val itemId: String,
+
+    /** 画像が属していたフォルダ識別子 (volumeName:relativePath) */
+    @ColumnInfo(name = "folderKey") val folderKey: String,
+
+    /** MediaStore のボリューム名。再走査時に該当ボリュームだけ解除するために持つ */
+    @ColumnInfo(name = "volumeName") val volumeName: String,
+
+    /** 開けなかったことを検出した日時 (エポック秒) */
+    @ColumnInfo(name = "detectedAtSec") val detectedAtSec: Long
 )
 
 /**

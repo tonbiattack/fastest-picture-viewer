@@ -143,4 +143,58 @@ interface GalleryRepository {
      * 代表サムネイルを自然順先頭で決めるために、起動後に一度呼ぶ。失敗しても動作は継続する。
      */
     suspend fun backfillMissingNaturalSortKeys()
+
+    /**
+     * 指定フォルダ内の画像を開いて確認し、開けなかったものを記録する (Issue #77)。
+     *
+     * 代表サムネイルの読み込みに失敗したフォルダに対して呼ぶ。1 フォルダあたり
+     * [limit] 件までに制限し、大量フォルダでも背景処理が長時間走らないようにする。
+     *
+     * @return 新たに「開けなかった」と判定した件数
+     */
+    suspend fun verifyFolderReadability(folderKey: String, limit: Int = DEFAULT_VERIFY_LIMIT): Int
+
+    /**
+     * 「開けなかった」記録をすべて消して再判定できるようにする (Issue #77)。
+     * 手動更新時に呼ぶ。ファイルが復活していれば一覧へ戻る。
+     * 次回起動時の全件検証もやり直せるよう、実施時刻もリセットする。
+     */
+    suspend fun clearUnreadableImages()
+
+    /**
+     * すべてのフォルダの代表画像を開いて確認し、開けないフォルダを非表示にする (Issue #77)。
+     *
+     * MediaStore に削除済みファイルの行が残る端末では、走査を何度繰り返しても
+     * 壊れたフォルダが消えない。フォルダごとに代表 1 件だけ確認するため、
+     * 全画像を開かずに済む。[lastValidationSec] から一定期間内は再実行しない。
+     *
+     * @return 新たに非表示にしたフォルダ数
+     */
+    suspend fun validateAllFolders(): Int
+
+    /**
+     * 画像 1 件の実体を確認し、開けなければ表示から除外する (Issue #77)。
+     *
+     * グリッドのサムネイル読み込み失敗を起点に呼ぶ。フォルダ全体ではなく
+     * 失敗した画像だけを対象にするため、読める画像を巻き込まない。
+     * その結果フォルダ内の全画像が除外されれば、フォルダ一覧からも自然に消える。
+     *
+     * @return 除外したら true (読める、または既に除外済みなら false)
+     */
+    suspend fun verifyImageReadable(item: ImageItem): Boolean
+
+    /**
+     * フォルダの代表サムネイル読み込みに失敗したときに呼ぶ (Issue #77)。
+     *
+     * 代表が開けない場合は他の画像も数件確認し、フォルダごと消えたのか
+     * 一部だけ欠けたのかを切り分ける。読めた場合は何もしない。
+     *
+     * @return 非表示にした画像数 (0 なら表示を維持)
+     */
+    suspend fun verifyFolderFromThumbnailFailure(folderKey: String): Int
+
+    companion object {
+        /** [verifyFolderReadability] の既定上限件数 */
+        const val DEFAULT_VERIFY_LIMIT = 400
+    }
 }

@@ -33,9 +33,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FolderListScrollPositionEntity::class,
         RecentFolderEntity::class,
         TagEntity::class,
-        FolderTagEntity::class
+        FolderTagEntity::class,
+        UnreadableImageEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -67,7 +68,8 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_4_5,
                 MIGRATION_5_6,
                 MIGRATION_6_7,
-                MIGRATION_7_8
+                MIGRATION_7_8,
+                MIGRATION_8_9
             ).build()
 
         /** テスト用のメモリ DB を構築する */
@@ -223,6 +225,40 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_folder_tags_tagId` ON `folder_tags` (`tagId`)"
+                )
+            }
+        }
+
+        /**
+         * v8 → v9: 実体を開けなかった画像の記録テーブルを追加する (Issue #77)。
+         *
+         * OPPO/ColorOS ではフォルダを削除しても MediaStore の行が残ることがあり、
+         * その行は走査で毎回返るため削除判定では消せない。開けなかった事実を別テーブルに
+         * 記録し、表示クエリから除外する。既存キャッシュ・お気に入り・タグは維持する。
+         */
+        internal val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `unreadable_images` (
+                        `itemId` TEXT NOT NULL,
+                        `folderKey` TEXT NOT NULL,
+                        `volumeName` TEXT NOT NULL,
+                        `detectedAtSec` INTEGER NOT NULL,
+                        PRIMARY KEY(`itemId`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_unreadable_images_volumeName` " +
+                        "ON `unreadable_images` (`volumeName`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_unreadable_images_folderKey` " +
+                        "ON `unreadable_images` (`folderKey`)"
+                )
+                db.execSQL(
+                    "ALTER TABLE `sync_state` ADD COLUMN `lastValidationSec` INTEGER NOT NULL DEFAULT 0"
                 )
             }
         }
