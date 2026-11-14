@@ -285,10 +285,11 @@ interface ImageItemDao {
     suspend fun getFolderReadabilityTargets(): List<FolderReadabilityTargetRow>
 
     /**
-     * 実体を開けなかったフォルダの一覧を、フォルダごとの枚数・サイズ付きで返す (Issue #80)。
+     * 実体を開けなかったフォルダの一覧を、フォルダごとの枚数・サイズ付きで返す (Issue #80/#81)。
      * 整理の候補として使い、ユーザーへの提示にも使う。
      *
-     * @param folderKey 対象フォルダ
+     * images に行が無い孤立した記録は数えない (件数が実態より多く見えるため)。
+     * 内部結合にすることで、実際に一覧から外れている枚数だけを返す。
      */
     @Query(
         """
@@ -297,7 +298,7 @@ interface ImageItemDao {
                COUNT(*) AS imageCount,
                COALESCE(SUM(images.size), 0) AS totalBytes
         FROM unreadable_images AS unreadable
-        LEFT JOIN images ON images.id = unreadable.itemId
+        INNER JOIN images ON images.id = unreadable.itemId
         GROUP BY unreadable.folderKey
         ORDER BY totalBytes DESC, folderKey ASC
         """
@@ -327,4 +328,20 @@ interface ImageItemDao {
     /** フォルダ総数 (安全弁の割合計算に使う、Issue #80) */
     @Query("SELECT COUNT(DISTINCT folderKey) FROM images")
     suspend fun countFolders(): Long
+
+    /**
+     * 対応する images 行が無い孤立した記録を削除する (Issue #81)。
+     *
+     * 以前の整理で images 行だけ消えた場合などに残る。
+     * 実体の有無に関係なく「対応先が無い」だけなので、安全に片付けられる。
+     *
+     * @return 削除した記録数
+     */
+    @Query(
+        """
+        DELETE FROM unreadable_images
+        WHERE NOT EXISTS (SELECT 1 FROM images WHERE images.id = unreadable_images.itemId)
+        """
+    )
+    suspend fun deleteOrphanedUnreadable(): Int
 }

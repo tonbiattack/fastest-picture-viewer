@@ -354,6 +354,8 @@ class GalleryRepositoryImpl(
 
     override suspend fun getUnreadableFolderSummary(): List<UnreadableFolderSummary> =
         withContext(Dispatchers.IO) {
+            // 対応する images 行が無い記録は、数えても意味がないので先に片付ける (Issue #81)
+            runCatching { imageDao.deleteOrphanedUnreadable() }
             imageDao.getUnreadableFolderSummary().map { row ->
                 UnreadableFolderSummary(
                     folderKey = row.folderKey,
