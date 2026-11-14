@@ -27,7 +27,13 @@ data class SyncStatus(
     val addedCount: Int = 0,
 
     /** 直近の同期で削除された画像数 */
-    val removedCount: Int = 0
+    val removedCount: Int = 0,
+
+    /**
+     * 直近の同期が全件走査だったか (Issue #86)。
+     * 「更新したのに変化がない」を判定するために持つ。
+     */
+    val wasFullScan: Boolean = false
 ) {
     companion object {
         val IDLE = SyncStatus()
