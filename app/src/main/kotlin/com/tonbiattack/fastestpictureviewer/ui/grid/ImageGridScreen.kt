@@ -367,6 +367,8 @@ fun ImageGridScreen(
                                             contentDescription = image.displayName,
                                             contentScale = ContentScale.Crop,
                                             error = painterResource(R.drawable.ic_broken_image),
+                                            // 読めない画像を通知し、フォルダごと非表示にできるようにする (Issue #77)
+                                            onError = { viewModel.onImageLoadError(image) },
                                             modifier = Modifier
                                                 .fillMaxSize()
                                                 .clip(RoundedCornerShape(2.dp))

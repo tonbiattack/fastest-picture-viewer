@@ -456,6 +456,7 @@ fun FolderListScreen(
                             },
                             onExcludeRequest = { pendingExclude = it },
                             onOpenFolder = onOpenFolder,
+                            onThumbnailError = viewModel::onFolderThumbnailError,
                             selectionMode = selectionMode,
                             selectedKeys = selectedKeys,
                             onToggleSelection = { key ->
@@ -623,6 +624,8 @@ private fun FolderGrid(
     selectedKeys: Set<String>,
     onToggleSelection: (String) -> Unit,
     onEditTags: (FolderUiModel) -> Unit,
+    /** 代表サムネイルの読み込みに失敗したフォルダの通知 (Issue #77) */
+    onThumbnailError: (FolderUiModel) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val gridState = rememberLazyGridState(
@@ -667,6 +670,7 @@ private fun FolderGrid(
                     onFavoriteToggle = { onFavoriteToggle(folder) },
                     onExcludeRequest = { onExcludeRequest(folder) },
                     onEditTags = { onEditTags(folder) },
+                    onThumbnailError = { onThumbnailError(folder) },
                     onLongClick = {
                         if (selectionMode) {
                             onToggleSelection(folder.folderKey)
@@ -771,7 +775,9 @@ private fun FolderGridCell(
     onFavoriteToggle: () -> Unit,
     onExcludeRequest: () -> Unit,
     onEditTags: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    /** 代表サムネイルの読み込みに失敗したときの通知 (Issue #77) */
+    onThumbnailError: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -830,6 +836,8 @@ private fun FolderGridCell(
                         contentDescription = folder.folderName,
                         contentScale = ContentScale.Crop,
                         error = painterResource(R.drawable.ic_broken_image),
+                        // 読めなかった代表画像を通知し、フォルダごと非表示にできるようにする (Issue #77)
+                        onError = { onThumbnailError() },
                         modifier = Modifier.fillMaxSize()
                     )
 

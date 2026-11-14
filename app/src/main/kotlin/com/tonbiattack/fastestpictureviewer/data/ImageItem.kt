@@ -107,3 +107,13 @@ data class RepresentativeImageRow(
     /** 代表画像のファイルサイズ。サムネイルキャッシュのキーに使う */
     @ColumnInfo(name = "size") val size: Long = 0L
 )
+
+/**
+ * 実体読み取り検証の対象 (Issue #77)。フォルダごとに自然順先頭の画像 1 件を返す。
+ * 「開けなかった記録」は考慮しないため、復活したフォルダも再判定できる。
+ */
+data class FolderReadabilityTargetRow(
+    @ColumnInfo(name = "id") val id: String,
+    @ColumnInfo(name = "folderKey") val folderKey: String,
+    @ColumnInfo(name = "volumeName") val volumeName: String
+)

@@ -120,6 +120,29 @@ class ImageGridViewModelTest {
         override suspend fun renameTag(tagId: Long, rawName: String): Boolean = true
         override suspend fun deleteTag(tagId: Long) = Unit
         override suspend fun backfillMissingNaturalSortKeys() = Unit
+
+        override suspend fun verifyFolderReadability(folderKey: String, limit: Int): Int = 0
+
+        val verifyCalls = mutableListOf<String>()
+        var verifyResult = 0
+
+        override suspend fun verifyFolderFromThumbnailFailure(folderKey: String): Int {
+            verifyCalls += folderKey
+            return verifyResult
+        }
+
+        /** Issue #77: 画像単位の確認。呼ばれた画像 ID を記録する */
+        val verifyImageCalls = mutableListOf<String>()
+        var verifyImageResult = false
+
+        override suspend fun verifyImageReadable(item: ImageItem): Boolean {
+            verifyImageCalls += item.id
+            return verifyImageResult
+        }
+
+        override suspend fun clearUnreadableImages() = Unit
+
+        override suspend fun validateAllFolders(): Int = 0
     }
 
     private fun images(count: Int): List<ImageItem> = (0 until count).map { index ->
@@ -273,5 +296,87 @@ class ImageGridViewModelTest {
             fallbackIndex = target.fallbackIndex
         )
         assertEquals(4, resolved)
+    }
+
+    // ---- Issue #77: 読み込みに失敗した画像の扱い ----
+    @Test
+    fun `読み込み失敗はその画像だけ実体確認する`() = runTest {
+        val repo = FakeRepository(images(5))
+        val vm = ImageGridViewModel(
+            repository = repo,
+            savedStateHandle = SavedStateHandle(mapOf("folderKey" to "v:Pictures/")),
+            viewSettings = FakeViewSettings()
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val items = vm.uiState.value.images
+        vm.onImageLoadError(items[0])
+        vm.onImageLoadError(items[2])
+        advanceUntilIdle()
+
+        // フォルダ全体ではなく、失敗した画像だけを確認する
+        assertEquals(listOf("id0", "id2"), repo.verifyImageCalls)
+        assertTrue(repo.verifyCalls.isEmpty())
+    }
+
+    @Test
+    fun `同じ画像の失敗は1回だけ確認する`() = runTest {
+        val repo = FakeRepository(images(5))
+        val vm = ImageGridViewModel(
+            repository = repo,
+            savedStateHandle = SavedStateHandle(mapOf("folderKey" to "v:Pictures/")),
+            viewSettings = FakeViewSettings()
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val first = vm.uiState.value.images.first()
+        repeat(3) { vm.onImageLoadError(first) }
+        advanceUntilIdle()
+
+        assertEquals(listOf("id0"), repo.verifyImageCalls)
+    }
+
+    @Test
+    fun `読めた画像は次回の失敗で再確認できる`() = runTest {
+        val repo = FakeRepository(images(5))
+        val vm = ImageGridViewModel(
+            repository = repo,
+            savedStateHandle = SavedStateHandle(mapOf("folderKey" to "v:Pictures/")),
+            viewSettings = FakeViewSettings()
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val first = vm.uiState.value.images.first()
+        repo.verifyImageResult = false
+        vm.onImageLoadError(first)
+        advanceUntilIdle()
+        vm.onImageLoadError(first)
+        advanceUntilIdle()
+
+        assertEquals(2, repo.verifyImageCalls.size)
+    }
+
+    @Test
+    fun `実体確認の例外で一覧が壊れない`() = runTest {
+        val base = FakeRepository(images(5))
+        val repo = object : GalleryRepository by base {
+            override suspend fun verifyImageReadable(item: ImageItem): Boolean =
+                throw IllegalStateException("probe failed")
+        }
+        val vm = ImageGridViewModel(
+            repository = repo,
+            savedStateHandle = SavedStateHandle(mapOf("folderKey" to "v:Pictures/")),
+            viewSettings = FakeViewSettings()
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.onImageLoadError(vm.uiState.value.images.first())
+        advanceUntilIdle()
+
+        assertEquals(5, vm.uiState.value.images.size)
     }
 }

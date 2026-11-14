@@ -107,7 +107,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-and-test.ps1
 
 ## 品質
 
-- **テスト:** 198 件（Robolectric による Room DAO、同期ポリシー、ViewModel、純粋ロジック）
+- **テスト:** 276 件（Robolectric による Room DAO、移行、同期ポリシー、読み取り検証、ViewModel、純粋ロジック）
 - **CI:** push / pull request で単体テストと debug ビルドを自動実行
 - **実機検証:** 画像 350,973 件・フォルダ 2,640 件で起動・復帰・100往復の画面遷移を確認
 - **起動時間:** キャッシュありで約 1.4〜2.4 秒（35万枚規模。参考目標 200ms は未達）
