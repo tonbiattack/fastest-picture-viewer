@@ -228,8 +228,8 @@ class GalleryRepositoryReadabilityTest {
 
     @Test
     fun `先頭画像だけ欠けた大量フォルダを丸ごと隠さない`() = runTest {
-        // 実機: 829 件中 660 件が削除済み、先頭の 21 (1).png も削除されていた。
-        // 代表 1 件だけで判断すると生きている 169 件まで隠してしまった。
+        // 実機: 大量フォルダの一部だけが削除され、代表も削除済みだった。
+        // 代表 1 件だけで判断すると、生きている残りの画像まで隠してしまった。
         val folder = "v:partial/"
         val items = (1..20).map { index ->
             buildItem("content://img/p$index", folder, "img%02d.jpg".format(index))

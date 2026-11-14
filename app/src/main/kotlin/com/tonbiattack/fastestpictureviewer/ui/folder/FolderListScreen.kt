@@ -128,6 +128,8 @@ fun FolderListScreen(
     // 検索結果から複数フォルダを選んで一括付与するモード (Issue #46)
     var selectionMode by remember { mutableStateOf(false) }
     var selectedKeys by remember { mutableStateOf(emptySet<String>()) }
+    // 見つからない画像の整理の確認ダイアログ (Issue #80)
+    var showCleanupDialog by remember { mutableStateOf(false) }
 
     // 検索が終わったら選択モードも解除する
     LaunchedEffect(state.isSearching) {
@@ -498,7 +500,60 @@ fun FolderListScreen(
                         .fillMaxWidth()
                 )
             }
+
+            // 実体が見つからない画像の案内 (Issue #80)。
+            // 件数だけを出し、フォルダ名などの内容は表示しない
+            if (state.staleImageCount > 0L) {
+                StaleMediaBanner(
+                    imageCount = state.staleImageCount,
+                    onCleanup = { showCleanupDialog = true },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp)
+                        .fillMaxWidth()
+                )
+            }
         }
+    }
+
+    // 整理の実行前に、何が起きるかを明示して確認する (Issue #80)
+    if (showCleanupDialog) {
+        AlertDialog(
+            onDismissRequest = { showCleanupDialog = false },
+            title = { Text("見つからない画像の情報を整理") },
+            text = {
+                Text(
+                    "${state.staleImageCount} 枚の画像が見つかりません。\n\n" +
+                        "端末から削除された画像の「登録情報」だけを片付けます。" +
+                        "写真そのものは削除しません。\n\n" +
+                        "SD カードが外れている場合は実行されません。"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCleanupDialog = false
+                        viewModel.cleanupStaleEntries()
+                    }
+                ) { Text("整理する") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCleanupDialog = false }) { Text("やめる") }
+            }
+        )
+    }
+
+    // 整理の結果 (中止理由を含む) を案内する
+    val cleanupMessage by viewModel.lastCleanupMessage.collectAsStateWithLifecycle()
+    cleanupMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::clearCleanupMessage,
+            title = { Text("整理の結果") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = viewModel::clearCleanupMessage) { Text("閉じる") }
+            }
+        )
     }
 }
 
@@ -1169,4 +1224,44 @@ private fun formatShortDate(epochSeconds: Long): String {
     if (epochSeconds <= 0) return ""
     val formatter = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
     return formatter.format(Date(epochSeconds * 1000))
+}
+
+/**
+ * 実体が見つからない画像の案内 (Issue #80)。
+ *
+ * 件数だけを表示し、フォルダ名やファイル名は出さない。
+ * 「整理する」で DB の登録情報だけを片付ける (写真そのものは消さない)。
+ */
+@Composable
+private fun StaleMediaBanner(
+    imageCount: Long,
+    onCleanup: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        tonalElevation = 4.dp
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "見つからない画像が ${imageCount} 枚あります",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Text(
+                text = "端末から削除された画像の登録情報が残っています。写真そのものは削除されません。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onCleanup) { Text("整理する") }
+            }
+        }
+    }
 }
