@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/pictobi-icon.png" alt="Pictobi のアイコン" width="160" height="160">
+</p>
+
 # Pictobi (fastest-picture-viewer)
 
 **Pictobi（ピクトビ）** — OPPO Reno13 A専用・表示速度最優先の個人用Android画像ビューア（MVP実装済み・実機検証済み／継続検証中）
@@ -10,7 +14,7 @@
 
 - **唯一の利用対象:** 個人所有の **OPPO Reno13 A**。端末のAndroidバージョン・ColorOSバージョン・空き容量・SDカード使用有無はADB/実機で確認する
 - **完成条件:** 自分のスマホにAPKをインストールし、普段使う画像フォルダをストレスなく閲覧でき、起動・復帰・戻る操作で一覧が不必要に消えない
-- **配布:** Google Playストアには公開しない。一般ユーザー向けの互換性・審査・配布基盤は作らない
+- **配布:** Google Playストアには公開しない。**GitHub Releases で署名済み APK を無料配布**する（手順は [リリース手順](docs/release.md)）
 - **導入・更新:** Windows PCからUSBデバッグ + ADBでAPKをインストール/上書きする。長期利用は固定のapplicationIdと安全に保管した専用署名鍵で署名したAPKを使う（鍵・パスワードはGitにコミットしない）
 - **検証:** OPPO Reno13 Aでの実機確認を必須とし、エミュレーターや大規模なE2E基盤は必要時のみ。実装・Gradleテスト・APK生成・ADB導入・ログ収集は可能な限りAIで自動化する
 - **範囲外:** Playストア申請、ストア向け説明文、公開用プライバシーポリシー、広告・課金・アカウント、機種横断の網羅的動作保証
