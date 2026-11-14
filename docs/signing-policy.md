@@ -7,9 +7,22 @@ OPPO Reno13 A にインストールする APK の署名鍵について、秘密�
 
 - 開発用 APK は Android SDK のデバッグ鍵で署名される
 - デバッグ鍵は `%USERPROFILE%\.android\debug.keystore` にあり、リポジトリには含まれない
-- リリース署名鍵は**まだ作成していない**
+- **リリース署名鍵は作成済み**（2026-11-14）。初回リリース `v0.1.0` を公開した
 - 同じ applicationId・同じ署名鍵で `adb install -r` すればアプリデータは維持される
 - 署名鍵を失うと、同じアプリの更新版を配布できなくなる
+
+### 作成済みの鍵の情報（実値は書かない）
+
+| 項目 | 値 |
+| --- | --- |
+| ファイル | `%USERPROFILE%\.android-signing\pictobi-release.jks` |
+| 設定ファイル | `%USERPROFILE%\.android-signing\pictobi-release.properties` |
+| エイリアス | `pictobi` |
+| 方式 | RSA 4096 / 有効期限 10000 日 |
+| 証明書 SHA-256 | `974205ee404b36fd15c11171f0f6a10f040cdd78140228757fb20b0c99056310` |
+| バックアップ | `%USERPROFILE%\pictobi-signing-backup\pictobi-signing-backup.zip` |
+
+> 証明書の SHA-256 は公開情報（APK から誰でも確認できる）。パスワードや鍵ファイルの中身は書かない。
 
 ## 2. リリース署名鍵の作成（人間が実施）
 

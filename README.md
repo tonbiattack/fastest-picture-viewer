@@ -233,6 +233,8 @@ Google Play では配布していません。APK を直接インストールし�
 3. ダウンロードした APK をタップしてインストール
 4. 起動して「写真と動画の閲覧」を許可
 
+最新版は **v0.1.0**（[リリースページ](https://github.com/tonbiattack/fastest-picture-viewer/releases/tag/v0.1.0)）。
+
 ### 更新
 
 同じ署名鍵の APK なら、上書きインストールで**アプリ内データは保持**されます。
