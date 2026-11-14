@@ -11,7 +11,7 @@ Issue #10 の環境構築手順と、再実行可能な確認・ビルド方法�
 | JDK | OpenJDK 21（`JAVA_HOME=C:\Program Files\jdk-21`） |
 | Git | 2.56.0.windows.1 |
 | Android Studio | AI-261 (2026.1.1)。インストール・初回設定済み |
-| Android SDK | `C:\Users\teni2\AppData\Local\Android\Sdk` |
+| Android SDK | `C:\Users\<user>\AppData\Local\Android\Sdk` |
 | Platform | android-36（android-36.1 も導入済み） |
 | Build Tools | 35.0.0 / 36.1.0 / 37.0.0 |
 | cmdline-tools | 23.0.0（`cmdline-tools\latest`） |
@@ -21,7 +21,7 @@ Issue #10 の環境構築手順と、再実行可能な確認・ビルド方法�
 | AGP / Kotlin / KSP | 8.13.2 / 2.2.20 / 2.2.20-2.0.4 |
 | compileSdk / minSdk / targetSdk | 36 / 29 / 36 |
 
-Android Studio の設定ディレクトリは `C:\Users\teni2\AppData\Roaming\Google\AndroidStudio2026.1.1`。
+Android Studio の設定ディレクトリは `C:\Users\<user>\AppData\Roaming\Google\AndroidStudio2026.1.1`。
 SDK ライセンスは同意済み（`license` ファイルあり。新しい Android CLI では `--licenses` は不要）。
 仮想化は Hyper-V / VBS が動作中（`HypervisorPresent=True`、systeminfo で "A hypervisor has been detected"）で、
 エミュレーターを使う場合も技術的には利用可能。ただし本開発は実機中心のため AVD は作成していない。
@@ -108,7 +108,7 @@ SDK の platform-tools に PATH が通っていないだけ。ビルドには影
 実機操作では次のフルパスを使う。
 
 ```
-C:\Users\teni2\AppData\Local\Android\Sdk\platform-tools\adb.exe
+C:\Users\<user>\AppData\Local\Android\Sdk\platform-tools\adb.exe
 ```
 
 ### Android SDK が見つからない

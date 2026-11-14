@@ -104,7 +104,7 @@ powershell -ExecutionPolicy Bypass -File scripts\transfer-to-sd.ps1 `
 
 # 3. 端末が複数あるときは -Serial を付ける
 powershell -ExecutionPolicy Bypass -File scripts\transfer-to-sd.ps1 `
-  -Source D:\pics -Destination Pictures\20261113 -Serial 6ad7aa65
+  -Source D:\pics -Destination Pictures\20261113 -Serial <serial>
 
 # 4. 事前確認だけ（端末を書き換えない）
 powershell -ExecutionPolicy Bypass -File scripts\transfer-to-sd.ps1 `
