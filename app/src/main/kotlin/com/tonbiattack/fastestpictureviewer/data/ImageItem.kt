@@ -117,3 +117,16 @@ data class FolderReadabilityTargetRow(
     @ColumnInfo(name = "folderKey") val folderKey: String,
     @ColumnInfo(name = "volumeName") val volumeName: String
 )
+
+/**
+ * 実体を開けなかったフォルダの集計行 (Issue #80)。
+ * 整理の候補として使い、ユーザーへの提示にも使う。
+ */
+data class UnreadableFolderSummaryRow(
+    @ColumnInfo(name = "folderKey") val folderKey: String,
+    @ColumnInfo(name = "volumeName") val volumeName: String,
+    /** 開けなかった画像の枚数 */
+    @ColumnInfo(name = "imageCount") val imageCount: Long,
+    /** 開けなかった画像の合計サイズ (バイト)。DB 上に記録が無い場合は 0 */
+    @ColumnInfo(name = "totalBytes") val totalBytes: Long
+)

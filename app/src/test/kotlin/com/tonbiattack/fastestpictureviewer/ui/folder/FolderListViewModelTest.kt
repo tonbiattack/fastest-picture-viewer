@@ -21,7 +21,9 @@ import com.tonbiattack.fastestpictureviewer.data.TagWithCount
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import com.tonbiattack.fastestpictureviewer.repository.SyncMode
 import com.tonbiattack.fastestpictureviewer.repository.SyncResult
+import com.tonbiattack.fastestpictureviewer.repository.StaleCleanupResult
 import com.tonbiattack.fastestpictureviewer.repository.SyncStatus
+import com.tonbiattack.fastestpictureviewer.repository.UnreadableFolderSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -248,6 +250,13 @@ class FolderListViewModelTest {
         override suspend fun clearUnreadableImages() = Unit
 
         override suspend fun validateAllFolders(): Int = 0
+
+        // Issue #80: 実体の無い行の整理。テストでは何もしない
+        override suspend fun getUnreadableFolderSummary(): List<UnreadableFolderSummary> =
+            emptyList()
+
+        override suspend fun cleanupStaleEntries(dryRun: Boolean): StaleCleanupResult =
+            StaleCleanupResult(0, 0, 0)
     }
 
     @Before

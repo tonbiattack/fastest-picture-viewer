@@ -283,4 +283,48 @@ interface ImageItemDao {
         """
     )
     suspend fun getFolderReadabilityTargets(): List<FolderReadabilityTargetRow>
+
+    /**
+     * 実体を開けなかったフォルダの一覧を、フォルダごとの枚数・サイズ付きで返す (Issue #80)。
+     * 整理の候補として使い、ユーザーへの提示にも使う。
+     *
+     * @param folderKey 対象フォルダ
+     */
+    @Query(
+        """
+        SELECT unreadable.folderKey AS folderKey,
+               MAX(unreadable.volumeName) AS volumeName,
+               COUNT(*) AS imageCount,
+               COALESCE(SUM(images.size), 0) AS totalBytes
+        FROM unreadable_images AS unreadable
+        LEFT JOIN images ON images.id = unreadable.itemId
+        GROUP BY unreadable.folderKey
+        ORDER BY totalBytes DESC, folderKey ASC
+        """
+    )
+    suspend fun getUnreadableFolderSummary(): List<UnreadableFolderSummaryRow>
+
+    /**
+     * 指定フォルダの「開けなかった」記録だけを削除する (Issue #80)。
+     * 画像の行は [deleteImagesByIds] で別途消す。
+     */
+    @Query("DELETE FROM unreadable_images WHERE folderKey = :folderKey")
+    suspend fun deleteUnreadableByFolder(folderKey: String)
+
+    /** フォルダ内で「開けなかった」画像の ID を取得する (Issue #80) */
+    @Query("SELECT itemId FROM unreadable_images WHERE folderKey = :folderKey")
+    suspend fun getUnreadableItemIds(folderKey: String): List<String>
+
+    /**
+     * 指定 ID の images 行を削除する (Issue #80)。
+     * 開けなかった画像だけを対象にし、健全な画像は残す。
+     *
+     * @return 削除した画像行数
+     */
+    @Query("DELETE FROM images WHERE id IN (:ids)")
+    suspend fun deleteImagesByIds(ids: List<String>): Int
+
+    /** フォルダ総数 (安全弁の割合計算に使う、Issue #80) */
+    @Query("SELECT COUNT(DISTINCT folderKey) FROM images")
+    suspend fun countFolders(): Long
 }

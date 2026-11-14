@@ -58,7 +58,12 @@ class GalleryRepositoryImpl(
      * OPPO/ColorOS では削除済みファイルの MediaStore 行が残り、走査で毎回返る。
      * 開けない代表画像が見つかったらフォルダ単位で非表示にする。
      */
-    private val readableProbe: ImageReadableProbe? = null
+    private val readableProbe: ImageReadableProbe? = null,
+    /**
+     * 現在マウントされているボリューム名を返す (Issue #80)。
+     * 既定では [MediaStoreScanner] に問い合わせる。テストで差し替えられるようにする。
+     */
+    private val mountedVolumesProvider: () -> Set<String> = { scanner.mountedVolumes() }
 ) : GalleryRepository {
 
     private val imageDao = db.imageItemDao()
@@ -346,6 +351,100 @@ class GalleryRepositoryImpl(
 
     override fun observeExcludedFolders(): Flow<List<ExcludedFolderEntity>> =
         excludedFolderDao.observeAll()
+
+    override suspend fun getUnreadableFolderSummary(): List<UnreadableFolderSummary> =
+        withContext(Dispatchers.IO) {
+            imageDao.getUnreadableFolderSummary().map { row ->
+                UnreadableFolderSummary(
+                    folderKey = row.folderKey,
+                    volumeName = row.volumeName,
+                    imageCount = row.imageCount,
+                    totalBytes = row.totalBytes
+                )
+            }
+        }
+
+    /**
+     * 実体の無い行を整理する (Issue #80)。
+     *
+     * 誤削除は取り返しがつかないため、[StaleMediaCleanup] の安全条件を必ず通す。
+     * 1 フォルダずつトランザクションで消し、途中で失敗しても他へ影響させない。
+     */
+    override suspend fun cleanupStaleEntries(dryRun: Boolean): StaleCleanupResult =
+        withContext(Dispatchers.IO) {
+            val rows = imageDao.getUnreadableFolderSummary()
+            if (rows.isEmpty()) {
+                return@withContext StaleCleanupResult(0, 0, 0)
+            }
+
+            val totalFolders = imageDao.countFolders()
+            val candidates = rows.map {
+                StaleMediaCleanup.Candidate(
+                    folderKey = it.folderKey,
+                    volumeName = it.volumeName,
+                    imageCount = it.imageCount,
+                    totalBytes = it.totalBytes
+                )
+            }
+
+            val mounted = mountedVolumesProvider()
+            when (
+                val decision = StaleMediaCleanup.decide(
+                    mountedVolumes = mounted,
+                    candidates = candidates,
+                    totalFolders = totalFolders.toInt()
+                )
+            ) {
+                is StaleMediaCleanup.Decision.Rejected -> {
+                    Log.i("FPV-Perf", "stale cleanup rejected: ${decision.reason}")
+                    StaleCleanupResult(0, 0, 0, rejectedReason = decision.reason)
+                }
+
+                is StaleMediaCleanup.Decision.Allowed -> {
+                    val targetKeys = decision.folderKeys.toSet()
+                    val targets = candidates.filter { it.folderKey in targetKeys }
+                    val imageCount = targets.sumOf { it.imageCount }
+                    val totalBytes = targets.sumOf { it.totalBytes }
+
+                    if (dryRun) {
+                        return@withContext StaleCleanupResult(
+                            folderCount = targets.size,
+                            imageCount = imageCount,
+                            totalBytes = totalBytes
+                        )
+                    }
+
+                    var removedFolders = 0
+                    var removedImages = 0L
+                    for (target in targets) {
+                        try {
+                            // 開けなかった画像の行だけを消す。
+                            // 欠損記録だけ消すと、壊れた画像が再び表示されてしまう (Issue #80)。
+                            // 一部だけ欠けたフォルダでも、実在する画像は残る
+                            val unreadableIds = imageDao.getUnreadableItemIds(target.folderKey)
+                            unreadableIds.chunked(DELETE_CHUNK_SIZE).forEach { chunk ->
+                                removedImages += imageDao.deleteImagesByIds(chunk)
+                            }
+                            imageDao.deleteUnreadableByFolder(target.folderKey)
+                            removedFolders++
+                        } catch (t: Exception) {
+                            // 1 フォルダの失敗で全体を止めない。次回の実行で再試行される
+                            Log.w("FPV-Perf", "stale cleanup failed: ${target.folderKey}", t)
+                        }
+                    }
+                    Log.i(
+                        "FPV-Perf",
+                        "stale cleanup: $removedFolders folders, $removedImages images, " +
+                            "${totalBytes / 1024 / 1024}MB"
+                    )
+                    StaleCleanupResult(
+                        folderCount = removedFolders,
+                        imageCount = removedImages,
+                        totalBytes = totalBytes
+                    )
+                }
+            }
+        }
 
     override suspend fun excludeFolder(volumeName: String, relativePath: String) {
         // 画面を離れた直後でも設定変更が失われないよう、キャンセル不可で書き込む

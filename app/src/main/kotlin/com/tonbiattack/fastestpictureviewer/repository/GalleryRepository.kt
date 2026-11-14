@@ -173,6 +173,26 @@ interface GalleryRepository {
     suspend fun validateAllFolders(): Int
 
     /**
+     * 実体を開けなかったフォルダの一覧を返す (Issue #80)。
+     * ユーザーへの提示と、整理の候補に使う。
+     */
+    suspend fun getUnreadableFolderSummary(): List<UnreadableFolderSummary>
+
+    /**
+     * 実体を開けなかった行を DB から整理する (Issue #80)。
+     *
+     * **安全条件を満たす場合のみ実行する。**
+     * - 対象のボリュームがマウントされていること
+     * - 対象がライブラリ全体の半数以下であること
+     * 条件を満たさない場合は何もせず、理由を返す。
+     *
+     * 元の画像ファイルには一切触れない (DB の索引を整理するだけ)。
+     *
+     * @param dryRun true なら削除せず、対象の見積りだけ返す
+     */
+    suspend fun cleanupStaleEntries(dryRun: Boolean = false): StaleCleanupResult
+
+    /**
      * 画像 1 件の実体を確認し、開けなければ表示から除外する (Issue #77)。
      *
      * グリッドのサムネイル読み込み失敗を起点に呼ぶ。フォルダ全体ではなく
@@ -197,4 +217,29 @@ interface GalleryRepository {
         /** [verifyFolderReadability] の既定上限件数 */
         const val DEFAULT_VERIFY_LIMIT = 400
     }
+}
+
+/** 実体を開けなかったフォルダ 1 件分 (Issue #80) */
+data class UnreadableFolderSummary(
+    val folderKey: String,
+    val volumeName: String,
+    /** 開けなかった画像の枚数 */
+    val imageCount: Long,
+    /** 開けなかった画像の合計サイズ (バイト) */
+    val totalBytes: Long
+)
+
+/** 実体の無い行の整理結果 (Issue #80) */
+data class StaleCleanupResult(
+    /** 実際に整理 (または dryRun なら整理予定) したフォルダ数 */
+    val folderCount: Int,
+    /** 対象の画像枚数 */
+    val imageCount: Long,
+    /** 対象の合計サイズ (バイト) */
+    val totalBytes: Long,
+    /** 実行しなかった理由。null なら実行した (または対象なし) */
+    val rejectedReason: String? = null
+) {
+    /** 何も変更していないか */
+    val isNoOp: Boolean get() = folderCount == 0
 }

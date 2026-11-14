@@ -130,7 +130,13 @@ data class FolderListUiState(
     val showResumeCard: Boolean = true,
 
     /** 表示中のフォルダキー (一覧と同じ順序)。ビューアの前後フォルダ移動に使う (Issue #57) */
-    val visibleFolderKeys: List<String> = emptyList()
+    val visibleFolderKeys: List<String> = emptyList(),
+
+    /**
+     * 実体が見つからない画像の件数 (Issue #80)。
+     * 0 なら案内を出さない。件数だけで、フォルダ名などは UI に出さない。
+     */
+    val staleImageCount: Long = 0
 ) {
     /** 同期中でまだ 1 件も無い場合に初回スキャン表示を出す */
     val showInitialScanProgress: Boolean get() = isSyncing && !hasFolders
@@ -246,12 +252,17 @@ class FolderListViewModel(
     /** サムネイル失敗から実体を確認済みのフォルダ (Issue #77)。同じフォルダで繰り返さない */
     private val thumbnailCheckedKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+    /** 実体が見つからない画像の件数 (Issue #80)。画面表示用 */
+    private val staleImageCount = MutableStateFlow(0L)
+
     init {
         // 並び順が変わるたびに、その並び順の保存位置を読み直す
         viewModelScope.launch {
             // StateFlow は同一値の再発行をしないため、そのまま購読する
             viewSettings.sortMode.collect { mode -> loadScrollRestore(mode) }
         }
+        // 実体が見つからない画像の件数を初回に読み込む (Issue #80)
+        refreshStaleCount()
     }
 
     /**
@@ -276,17 +287,22 @@ class FolderListViewModel(
                         scrollRestore,
                         lastViewedStore.lastViewed,
                         tagsFlow,
-                        viewSettings.showResumeCard
-                    ) { filter, restore, resume, allTags, showResumeCard ->
+                        combine(
+                            viewSettings.showResumeCard,
+                            staleImageCount
+                        ) { show, stale -> show to stale }
+                    ) { filter, restore, resume, allTags, showAndStale ->
+                        val (showResumeCard, stale) = showAndStale
                         UiContext(
                             filter = filter,
                             restore = restore,
                             resume = resume,
                             showResumeCard = showResumeCard
-                        ) to allTags
+                        ) to (allTags to stale)
                     }
                 ) { data, status, columns, sortMode, contextAndTags ->
-                    val (context, allTags) = contextAndTags
+                    val (context, tagsAndStale) = contextAndTags
+                    val (allTags, staleCount) = tagsAndStale
                     if (!firstFrameLogged && data.summaries.isNotEmpty()) {
                         firstFrameLogged = true
                         val elapsedMs = (System.nanoTime() - startedAtNanos) / 1_000_000
@@ -356,7 +372,8 @@ class FolderListViewModel(
                         tagFilter = context.filter.tagFilter,
                         allTags = allTags,
                         showResumeCard = context.showResumeCard,
-                        visibleFolderKeys = visibleFolders.map { it.folderKey }
+                        visibleFolderKeys = visibleFolders.map { it.folderKey },
+                        staleImageCount = staleCount
                     )
                 }
             }
@@ -516,6 +533,46 @@ class FolderListViewModel(
     /** 列数を変更して永続化する */
     fun setColumnCount(count: Int) {
         viewSettings.setColumnCount(count)
+    }
+
+    /**
+     * 実体が見つからない画像の件数を読み直す (Issue #80)。
+     * 一覧を開いたときと、整理を実行した後に呼ぶ。
+     */
+    fun refreshStaleCount() {
+        viewModelScope.launch {
+            val summary = runCatching { repository.getUnreadableFolderSummary() }
+                .getOrDefault(emptyList())
+            staleImageCount.value = summary.sumOf { it.imageCount }
+        }
+    }
+
+    /**
+     * 実体が見つからない行を DB から整理する (Issue #80)。
+     *
+     * SD カードが外れている場合などはリポジトリ側の安全条件で中止される。
+     * 中止理由は [lastCleanupMessage] に残し、UI で案内する。
+     */
+    fun cleanupStaleEntries() {
+        viewModelScope.launch {
+            val result = runCatching { repository.cleanupStaleEntries() }
+                .getOrNull()
+            lastCleanupMessage.value = when {
+                result == null -> "整理に失敗しました"
+                result.rejectedReason != null -> result.rejectedReason
+                result.folderCount == 0 -> "整理する対象はありませんでした"
+                else -> "${result.imageCount} 枚の情報を整理しました"
+            }
+            refreshStaleCount()
+        }
+    }
+
+    /** 整理の結果メッセージ (Issue #80)。表示後に [clearCleanupMessage] で消す */
+    val lastCleanupMessage = MutableStateFlow<String?>(null)
+
+    /** 整理の結果メッセージを消す */
+    fun clearCleanupMessage() {
+        lastCleanupMessage.value = null
     }
 
     /** 「前回の続き」カードの表示を切り替えて永続化する (Issue #53) */

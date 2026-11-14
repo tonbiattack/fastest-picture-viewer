@@ -26,6 +26,33 @@ class MediaStoreScanner(private val context: Context) {
         MediaStore.getExternalVolumeNames(context).toList()
 
     /**
+     * 現在マウントされていて読み取り可能なボリューム名の集合 (Issue #80)。
+     *
+     * 実体を確認して DB から整理する処理は、SD カードが抜けているだけで
+     * 「実体が無い」と誤判定してしまう。誤削除は取り返しがつかないため、
+     * マウント状態を必ず確認してから実行する。
+     */
+    fun mountedVolumes(): Set<String> {
+        val mounted = MediaStore.getExternalVolumeNames(context)
+        return mounted.filterTo(hashSetOf()) { volume ->
+            try {
+                // 実際にクエリできて 1 行でも返るかで「読める」ことを確認する。
+                // 空のボリューム (画像 0 件) も正常なので、例外が出なければ可とする
+                context.contentResolver.query(
+                    MediaStore.Images.Media.getContentUri(volume),
+                    arrayOf(MediaStore.MediaColumns._ID),
+                    null,
+                    null,
+                    null
+                )?.use { true } ?: false
+            } catch (t: Exception) {
+                // 未マウント・権限なし・一時的な不調は「触らない」側に倒す
+                false
+            }
+        }
+    }
+
+    /**
      * ボリュームの MediaStore 世代番号を取得する。
      *
      * 世代番号はそのボリュームのメディアが変更されるたびに増えるため、
