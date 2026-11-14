@@ -84,6 +84,7 @@ import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
 import com.tonbiattack.fastestpictureviewer.data.TagWithCount
 import com.tonbiattack.fastestpictureviewer.ui.components.FastScroller
+import com.tonbiattack.fastestpictureviewer.ui.components.ScrollToTopButton
 import kotlinx.coroutines.flow.distinctUntilChanged
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -679,6 +680,14 @@ private fun FolderGrid(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
+        )
+        // ワンタップで先頭へ戻る (Issue #76)。
+        // FastScroller (右端 28dp) と重ならないよう右に余白を取る
+        ScrollToTopButton(
+            state = gridState,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 36.dp, bottom = 16.dp)
         )
     }
 }
