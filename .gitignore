@@ -3,6 +3,9 @@
 build/
 .kotlin/
 
+# リリース成果物（GitHub Releases で配布する。リポジトリには入れない）
+dist/
+
 # IDE
 .idea/
 *.iml
