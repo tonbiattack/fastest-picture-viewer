@@ -13,6 +13,7 @@ import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
 import com.tonbiattack.fastestpictureviewer.data.TagWithCount
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
+import com.tonbiattack.fastestpictureviewer.repository.MediaRescanHint
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -136,7 +137,13 @@ data class FolderListUiState(
      * 実体が見つからない画像の件数 (Issue #80)。
      * 0 なら案内を出さない。件数だけで、フォルダ名などは UI に出さない。
      */
-    val staleImageCount: Long = 0
+    val staleImageCount: Long = 0,
+
+    /**
+     * メディア再スキャンを案内すべきか (Issue #86)。
+     * 全件走査が成功したのに変化が無いときだけ true になる。
+     */
+    val suggestRescan: Boolean = false
 ) {
     /** 同期中でまだ 1 件も無い場合に初回スキャン表示を出す */
     val showInitialScanProgress: Boolean get() = isSyncing && !hasFolders
@@ -255,6 +262,9 @@ class FolderListViewModel(
     /** 実体が見つからない画像の件数 (Issue #80)。画面表示用 */
     private val staleImageCount = MutableStateFlow(0L)
 
+    /** 利用者がメディア再スキャンの案内を閉じたか (Issue #86) */
+    private val rescanHintDismissed = MutableStateFlow(false)
+
     init {
         // 並び順が変わるたびに、その並び順の保存位置を読み直す
         viewModelScope.launch {
@@ -289,20 +299,21 @@ class FolderListViewModel(
                         tagsFlow,
                         combine(
                             viewSettings.showResumeCard,
-                            staleImageCount
-                        ) { show, stale -> show to stale }
-                    ) { filter, restore, resume, allTags, showAndStale ->
-                        val (showResumeCard, stale) = showAndStale
+                            staleImageCount,
+                            rescanHintDismissed
+                        ) { show, stale, dismissed -> Triple(show, stale, dismissed) }
+                    ) { filter, restore, resume, allTags, state ->
+                        val (showResumeCard, stale, dismissed) = state
                         UiContext(
                             filter = filter,
                             restore = restore,
                             resume = resume,
                             showResumeCard = showResumeCard
-                        ) to (allTags to stale)
+                        ) to Triple(allTags, stale, dismissed)
                     }
                 ) { data, status, columns, sortMode, contextAndTags ->
-                    val (context, tagsAndStale) = contextAndTags
-                    val (allTags, staleCount) = tagsAndStale
+                    val (context, extras) = contextAndTags
+                    val (allTags, staleCount, dismissed) = extras
                     if (!firstFrameLogged && data.summaries.isNotEmpty()) {
                         firstFrameLogged = true
                         val elapsedMs = (System.nanoTime() - startedAtNanos) / 1_000_000
@@ -373,7 +384,14 @@ class FolderListViewModel(
                         allTags = allTags,
                         showResumeCard = context.showResumeCard,
                         visibleFolderKeys = visibleFolders.map { it.folderKey },
-                        staleImageCount = staleCount
+                        staleImageCount = staleCount,
+                        suggestRescan = !dismissed && MediaRescanHint.shouldSuggest(
+                            wasFullScan = status.wasFullScan,
+                            addedCount = status.addedCount,
+                            removedCount = status.removedCount,
+                            failedVolumeCount = status.failedVolumeCount,
+                            hasFolders = allFolders.isNotEmpty()
+                        )
                     )
                 }
             }
@@ -573,6 +591,22 @@ class FolderListViewModel(
     /** 整理の結果メッセージを消す */
     fun clearCleanupMessage() {
         lastCleanupMessage.value = null
+    }
+
+    /**
+     * メディア再スキャンの案内を閉じる (Issue #86)。
+     * 閉じた後は、次に手動更新するまで再表示しない。
+     */
+    fun dismissRescanHint() {
+        rescanHintDismissed.value = true
+    }
+
+    /**
+     * 手動更新を開始したことを記録する (Issue #86)。
+     * 閉じていた案内を再表示し、更新結果を改めて確認できるようにする。
+     */
+    fun onManualRefreshStarted() {
+        rescanHintDismissed.value = false
     }
 
     /** 「前回の続き」カードの表示を切り替えて永続化する (Issue #53) */

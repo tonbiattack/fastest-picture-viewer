@@ -811,7 +811,8 @@ class GalleryRepositoryImpl(
             failedVolumeCount = failedVolumes.size,
             errorMessage = message,
             addedCount = added,
-            removedCount = removed
+            removedCount = removed,
+            wasFullScan = isFull
         )
         return result
     }

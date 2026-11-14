@@ -83,6 +83,7 @@ import com.tonbiattack.fastestpictureviewer.core.image.folderThumbnailRequest
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
 import com.tonbiattack.fastestpictureviewer.data.TagWithCount
+import com.tonbiattack.fastestpictureviewer.repository.MediaRescanHint
 import com.tonbiattack.fastestpictureviewer.ui.components.FastScroller
 import com.tonbiattack.fastestpictureviewer.ui.components.ScrollToTopButton
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -292,7 +293,13 @@ fun FolderListScreen(
                                 strokeWidth = 3.dp
                             )
                         } else {
-                            IconButton(onClick = onManualRefresh) {
+                            IconButton(
+                                onClick = {
+                                    // 案内を閉じていても、更新したら再判定する (Issue #86)
+                                    viewModel.onManualRefreshStarted()
+                                    onManualRefresh()
+                                }
+                            ) {
                                 Icon(Icons.Filled.Refresh, contentDescription = "全件再同期")
                             }
                         }
@@ -510,6 +517,18 @@ fun FolderListScreen(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(16.dp)
+                        .fillMaxWidth()
+                )
+            }
+
+            // メディア再スキャンの案内 (Issue #86)。
+            // 全件走査しても変化が無いときだけ出す。既存バナーと重ならないよう上に積む
+            if (state.suggestRescan) {
+                MediaRescanBanner(
+                    onDismiss = viewModel::dismissRescanHint,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 16.dp, end = 16.dp, bottom = 96.dp)
                         .fillMaxWidth()
                 )
             }
@@ -1224,6 +1243,51 @@ private fun formatShortDate(epochSeconds: Long): String {
     if (epochSeconds <= 0) return ""
     val formatter = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
     return formatter.format(Date(epochSeconds * 1000))
+}
+
+/**
+ * メディア再スキャンの案内 (Issue #86)。
+ *
+ * 全件走査しても新しい写真が見つからなかったときに出す。
+ * フォルダ名やファイル名は含めない。「閉じる」で消せる。
+ */
+@Composable
+private fun MediaRescanBanner(
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+        tonalElevation = 4.dp
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "新しい写真が見つかりませんでした",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+            Text(
+                text = MediaRescanHint.MESSAGE,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Text(
+                text = MediaRescanHint.DETAIL,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onDismiss) { Text("閉じる") }
+            }
+        }
+    }
 }
 
 /**
