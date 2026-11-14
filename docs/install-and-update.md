@@ -175,9 +175,9 @@ main の最新（PR #50 / #51 まで）へ更新したときの実コマンド�
 
 ```powershell
 adb devices -l
-# 24df3d69 / 6ad7aa65（CPH2699 = OPPO Reno13 A） / fa7650977d87 の 3 台
+# <serial> / <serial>（CPH2699 = OPPO Reno13 A） / <serial> の 3 台
 
-powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Info -Serial 6ad7aa65
+powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Info -Serial <serial>
 ```
 
 結果（更新前）:
@@ -210,7 +210,7 @@ firstInstallTime=2026-11-12 20:51:28
 ### 8-3. 上書きインストール
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Install -Serial 6ad7aa65
+powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Install -Serial <serial>
 # APK を上書きインストールします (アプリデータは維持): ...\app-debug.apk
 # Performing Streamed Install
 # Success
@@ -221,7 +221,7 @@ powershell -ExecutionPolicy Bypass -File scripts\device.ps1 -Action Install -Ser
 ### 8-4. 更新後の確認
 
 ```powershell
-adb -s 6ad7aa65 shell dumpsys package com.tonbiattack.fastestpictureviewer |
+adb -s <serial> shell dumpsys package com.tonbiattack.fastestpictureviewer |
   Select-String "versionCode|versionName|firstInstallTime|lastUpdateTime|pkgFlags"
 ```
 
@@ -239,8 +239,8 @@ firstInstallTime=2026-11-12 20:51:28
 = アンインストールされず、アプリデータが維持された。
 
 ```powershell
-adb -s 6ad7aa65 logcat -c
-adb -s 6ad7aa65 shell am start -W -n com.tonbiattack.fastestpictureviewer/.MainActivity
+adb -s <serial> logcat -c
+adb -s <serial> shell am start -W -n com.tonbiattack.fastestpictureviewer/.MainActivity
 ```
 
 結果:
@@ -254,7 +254,7 @@ WaitTime: 1996
 
 ```powershell
 Start-Sleep -Seconds 6
-adb -s 6ad7aa65 logcat -d -s AndroidRuntime:E FPV-Perf:I Room:E SQLiteLog:E
+adb -s <serial> logcat -d -s AndroidRuntime:E FPV-Perf:I Room:E SQLiteLog:E
 ```
 
 結果: クラッシュ・DB エラーなし。差分同期が 1 回走ったのみ。
@@ -266,13 +266,13 @@ I FPV-Perf: volume=external_primary currentGen=3466426 storedGen=3466412 kind=IN
 画面確認（スクリーンショットと UI ツリー取得）:
 
 ```powershell
-adb -s 6ad7aa65 shell screencap -p /sdcard/oppo1.png
-adb -s 6ad7aa65 pull /sdcard/oppo1.png captures\oppo-after-update.png
-adb -s 6ad7aa65 shell rm /sdcard/oppo1.png
+adb -s <serial> shell screencap -p /sdcard/oppo1.png
+adb -s <serial> pull /sdcard/oppo1.png captures\oppo-after-update.png
+adb -s <serial> shell rm /sdcard/oppo1.png
 
-adb -s 6ad7aa65 shell uiautomator dump /sdcard/o.xml
-adb -s 6ad7aa65 pull /sdcard/o.xml captures\oppo.xml
-adb -s 6ad7aa65 shell rm /sdcard/o.xml
+adb -s <serial> shell uiautomator dump /sdcard/o.xml
+adb -s <serial> pull /sdcard/o.xml captures\oppo.xml
+adb -s <serial> shell rm /sdcard/o.xml
 python -X utf8 scripts\ui_find.py captures\oppo.xml ""
 ```
 
