@@ -89,9 +89,9 @@ interface TagDao {
     @Query("DELETE FROM tags WHERE tagId = :tagId")
     suspend fun deleteTagRow(tagId: Long)
 
-    /** フォルダにタグを付与する (既に付いていれば何もしない) */
+    /** フォルダにタグを付与する (既に付いていれば何もしない)。追加したら行 ID、既存なら -1 */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun addLink(link: FolderTagEntity)
+    suspend fun addLink(link: FolderTagEntity): Long
 
     /** フォルダからタグを解除する */
     @Query("DELETE FROM folder_tags WHERE folderKey = :folderKey AND tagId = :tagId")
@@ -114,4 +114,16 @@ interface TagDao {
     /** タグの付与件数 */
     @Query("SELECT COUNT(*) FROM folder_tags WHERE tagId = :tagId")
     suspend fun countFolders(tagId: Long): Long
+
+    /** 全タグを取得する (バックアップ用) */
+    @Query("SELECT * FROM tags ORDER BY displayName ASC, tagId ASC")
+    suspend fun getAllTags(): List<TagEntity>
+
+    /** 全紐付けを取得する (バックアップ用) */
+    @Query("SELECT * FROM folder_tags")
+    suspend fun getAllFolderTags(): List<FolderTagEntity>
+
+    /** 正規化名でタグを一括取得する (インポートの照合用) */
+    @Query("SELECT * FROM tags WHERE normalizedName IN (:names)")
+    suspend fun getTagsByNormalizedNames(names: List<String>): List<TagEntity>
 }

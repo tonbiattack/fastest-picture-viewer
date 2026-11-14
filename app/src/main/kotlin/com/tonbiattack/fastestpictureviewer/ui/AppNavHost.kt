@@ -17,6 +17,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.tonbiattack.fastestpictureviewer.AppContainer
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
+import com.tonbiattack.fastestpictureviewer.ui.backup.BackupScreen
+import com.tonbiattack.fastestpictureviewer.ui.backup.BackupViewModel
 import com.tonbiattack.fastestpictureviewer.ui.favorites.FavoriteImagesScreen
 import com.tonbiattack.fastestpictureviewer.ui.favorites.FavoriteImagesViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.ExcludedFoldersScreen
@@ -43,6 +45,7 @@ object Routes {
     const val FOLDER_LIST = "folders"
     const val EXCLUDED_FOLDERS = "excluded-folders"
     const val FAVORITES = "favorites"
+    const val BACKUP = "backup"
     const val IMAGE_GRID = "images/{folderKey}"
     const val IMAGE_VIEWER = "viewer/{folderKey}/{startIndex}?favoritesOnly={favoritesOnly}&fromEnd={fromEnd}"
 
@@ -105,6 +108,9 @@ fun AppNavHost(
                 onOpenExcludedFolders = {
                     navController.navigate(Routes.EXCLUDED_FOLDERS)
                 },
+                onOpenBackup = {
+                    navController.navigate(Routes.BACKUP)
+                },
                 onExcludeFolder = { folder ->
                     scope.launch {
                         container.repository.excludeFolder(
@@ -146,6 +152,15 @@ fun AppNavHost(
         composable(Routes.EXCLUDED_FOLDERS) {
             val viewModel: ExcludedFoldersViewModel = viewModel(factory = factory)
             ExcludedFoldersScreen(
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        // タグ・お気に入り・設定のバックアップ (Issue #74)
+        composable(Routes.BACKUP) {
+            val viewModel: BackupViewModel = viewModel(factory = factory)
+            BackupScreen(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() }
             )
