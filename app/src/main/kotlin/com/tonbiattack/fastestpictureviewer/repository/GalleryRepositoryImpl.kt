@@ -680,6 +680,8 @@ class GalleryRepositoryImpl(
         val failedVolumes = mutableListOf<String>()
         var anyFailure = false
         var skippedVolumes = 0
+        /** 削除を見送った理由 (Issue #92)。UI に伝える */
+        val skippedDeletions = mutableSetOf<DeletionGuard.Reason>()
 
         val volumes = scanner.volumes()
         for (volumeName in volumes) {
@@ -718,6 +720,8 @@ class GalleryRepositoryImpl(
                     }
                     var scanAdded = 0
                     var scanUpdated = 0
+                    // 削除の安全判定に使う（Issue #92）
+                    var scannedCount = 0
 
                     scanner.scanBatched(volumeName, modifiedAfterSec) { batch ->
                         val existing = imageDao.getImagesByIds(batch.map { it.id })
@@ -731,14 +735,37 @@ class GalleryRepositoryImpl(
                         val newlyAdded = plan.upserts.count { it.id !in existingIds }
                         scanAdded += newlyAdded
                         scanUpdated += plan.upserts.size - newlyAdded
+                        scannedCount += batch.size
                     }
 
                     added += scanAdded
                     updated += scanUpdated
 
                     if (canDelete && cachedIds != null && cachedIds.isNotEmpty()) {
-                        deleteInChunks(cachedIds.toList())
-                        removed += cachedIds.size
+                        // 削除してよいか、走査結果から判定する (Issue #92)。
+                        // 走査 0 件や大量削除は、写真が消えたのではなく
+                        // 読み取りに失敗した可能性がある
+                        when (
+                            val decision = DeletionGuard.decide(
+                                cachedCount = cachedIds.size + scannedCount,
+                                scannedCount = scannedCount,
+                                deletionCount = cachedIds.size,
+                                volumeReadable = isVolumeReadable(volumeName)
+                            )
+                        ) {
+                            is DeletionGuard.Decision.Rejected -> {
+                                skippedDeletions += decision.reason
+                                Log.w(
+                                    "FPV-Perf",
+                                    "stale deletion skipped: ${decision.reason}"
+                                )
+                            }
+
+                            is DeletionGuard.Decision.Allowed -> {
+                                deleteInChunks(cachedIds.toList())
+                                removed += cachedIds.size
+                            }
+                        }
                     }
                 } else {
                     // 差分走査: 新規/更新のみを upsert する (削除反映は完全走査が担う)
@@ -793,6 +820,8 @@ class GalleryRepositoryImpl(
         val message = when {
             failedVolumes.isNotEmpty() ->
                 "ストレージ ${failedVolumes.size} 件の更新を確認できませんでした（キャッシュは維持されています）"
+            skippedDeletions.isNotEmpty() ->
+                skippedDeletions.joinToString(" ") { DeletionGuard.message(it) }
             else -> null
         }
 
@@ -807,7 +836,8 @@ class GalleryRepositoryImpl(
             "FPV-Perf",
             "sync done: ${SystemClock.elapsedRealtime() - syncStartedAtMs}ms, " +
                 "full=$isFull added=$added updated=$updated removed=$removed " +
-                "skipped=$skippedVolumes failed=${failedVolumes.size}"
+                "skipped=$skippedVolumes failed=${failedVolumes.size} " +
+                "deletionSkipped=${skippedDeletions.size}"
         )
 
         _syncStatus.value = SyncStatus(
@@ -822,9 +852,19 @@ class GalleryRepositoryImpl(
         return result
     }
 
+    /**
+     * 削除直前にボリュームを読めるか確認する (Issue #92)。
+     *
+     * 走査中に SD カードが抜けた場合、走査結果だけでは判断できない。
+     * 読めない状態で削除すると、写真が残っていても一覧から消える。
+     */
+    private suspend fun isVolumeReadable(volumeName: String): Boolean =
+        withContext(Dispatchers.IO) {
+            runCatching { volumeName in mountedVolumesProvider() }.getOrDefault(false)
+        }
+
     /** SQLite 変数上限を避けるため ID を分割して削除する */
-    private suspend fun deleteInChunks(ids: List<String>) {
-        ids.chunked(DELETE_CHUNK_SIZE).forEach { chunk ->
+    private suspend fun deleteInChunks(ids: List<String>) {        ids.chunked(DELETE_CHUNK_SIZE).forEach { chunk ->
             imageDao.deleteByIds(chunk)
         }
     }

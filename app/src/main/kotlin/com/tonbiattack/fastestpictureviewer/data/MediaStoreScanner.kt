@@ -19,10 +19,9 @@ import java.util.Locale
  * - 完全走査 (modifiedAfterSec = null) と差分走査 (DATE_MODIFIED が引数以降のみ) をサポートする
  * - 大量画像でも OOM しないよう、[scanBatched] で一定件数ごとに処理する
  */
-class MediaStoreScanner(private val context: Context) {
-
+open class MediaStoreScanner(private val context: Context) {
     /** 画像を列挙対象とするストレージのボリューム名一覧 */
-    fun volumes(): List<String> =
+    open fun volumes(): List<String> =
         MediaStore.getExternalVolumeNames(context).toList()
 
     /**
@@ -32,8 +31,7 @@ class MediaStoreScanner(private val context: Context) {
      * 「実体が無い」と誤判定してしまう。誤削除は取り返しがつかないため、
      * マウント状態を必ず確認してから実行する。
      */
-    fun mountedVolumes(): Set<String> {
-        val mounted = MediaStore.getExternalVolumeNames(context)
+    open fun mountedVolumes(): Set<String> {        val mounted = MediaStore.getExternalVolumeNames(context)
         return mounted.filterTo(hashSetOf()) { volume ->
             try {
                 // 実際にクエリできて 1 行でも返るかで「読める」ことを確認する。
@@ -58,8 +56,7 @@ class MediaStoreScanner(private val context: Context) {
      * 世代番号はそのボリュームのメディアが変更されるたびに増えるため、
      * 前回と同じなら再走査を省略できる。API 29 では取得できないため null を返す。
      */
-    fun generation(volumeName: String): Long? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+    open fun generation(volumeName: String): Long? {        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
         return try {
             MediaStore.getGeneration(context, volumeName)
         } catch (t: Exception) {
@@ -85,13 +82,12 @@ class MediaStoreScanner(private val context: Context) {
      * @param modifiedAfterSec 非 null の場合はこのエポック秒以降に更新された画像に限定する (差分走査)
      * @throws IllegalStateException / SecurityException / IllegalArgumentException は呼び出し元で扱う
      */
-    suspend fun scanBatched(
+    open suspend fun scanBatched(
         volumeName: String,
         modifiedAfterSec: Long? = null,
         batchSize: Int = DEFAULT_BATCH_SIZE,
         onBatch: suspend (List<ImageItem>) -> Unit
-    ) {
-        require(batchSize > 0) { "batchSize must be positive" }
+    ) {        require(batchSize > 0) { "batchSize must be positive" }
 
         val collection = MediaStore.Images.Media.getContentUri(volumeName)
         val projection = arrayOf(
