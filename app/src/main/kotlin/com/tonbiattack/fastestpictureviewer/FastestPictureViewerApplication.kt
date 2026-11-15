@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
 import com.tonbiattack.fastestpictureviewer.data.BackupRepository
 import com.tonbiattack.fastestpictureviewer.data.ContentResolverReadableProbe
+import com.tonbiattack.fastestpictureviewer.data.DatabaseReset
 import com.tonbiattack.fastestpictureviewer.data.LastViewedStore
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
 import com.tonbiattack.fastestpictureviewer.data.SharedPreferencesLastViewedStore
@@ -118,7 +119,7 @@ class FastestPictureViewerApplication : Application(), ImageLoaderFactory {
     /**
      * 依存の生成に失敗したときに保持するエラー (Issue #88)。
      *
-     * 初期化中の例外について、最小限の案内画面を表示する。
+     * DB を開けなかった場合などに、起動を諦めず案内画面を出すために使う。
      */
     @Volatile
     var startupError: Throwable? = null
@@ -136,15 +137,36 @@ class FastestPictureViewerApplication : Application(), ImageLoaderFactory {
         super.onCreate()
         // 画像キャッシュは DB に依存しないため、先に必ず作る
         imageLoader = buildImageLoader()
+        initializeContainer()
+    }
+
+    /**
+     * 依存一式を作る。失敗してもプロセスを落とさず、理由を保持する。
+     * 利用者が初期化を選んだときに再度呼ぶ。
+     */
+    fun initializeContainer() {
         container = try {
             AppContainer(this, imageLoader)
         } catch (t: Exception) {
-            // DB 破損などで生成に失敗してもプロセスを落とさない。
-            // 画面側で案内を出し、再起動や復旧を促す
             startupError = t
             android.util.Log.e("FPV-Perf", "AppContainer initialization failed", t)
             null
         }
+    }
+
+    /**
+     * 破損した DB を退避してから、依存を作り直す (Issue #88)。
+     *
+     * 自動では行わない。利用者が画面で明示的に選んだときだけ呼ぶ。
+     * 写真そのものには触れない。
+     *
+     * @return 作り直せたか
+     */
+    fun resetDatabaseAndRetry(): Boolean {
+        DatabaseReset.reset(this)
+        startupError = null
+        initializeContainer()
+        return container != null
     }
 
     override fun newImageLoader(): ImageLoader = imageLoader
