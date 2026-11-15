@@ -378,6 +378,8 @@ $csvPath = Join-Path $dir ("viewer-{0}.csv" -f $timestamp)
     device  = [pscustomobject]@{ model = $model; android = $release; serial = $target }
     folder  = $Folder
     runs    = $Runs
+    # 計測値にはスワイプ操作自体の時間が含まれる。実質の描画遅れは valueMs - swipeDurationMs
+    swipeDurationMs = $SwipeDurationMs
     summary = $summary
     rows    = $rows
 } | ConvertTo-Json -Depth 5 | Set-Content -Path $jsonPath -Encoding UTF8
