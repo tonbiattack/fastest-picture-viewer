@@ -68,6 +68,9 @@ internal class PreservingOpenHelperFactory(
  * - recent_folders:           最近閲覧したフォルダ
  * - tags:                     フォルダに付与するタグ
  * - folder_tags:              フォルダとタグの多対多関係
+ * - folder_summaries:         フォルダ集計のキャッシュ (Issue #106)
+ * - folder_representatives:   フォルダ代表サムネイルのキャッシュ (Issue #106)
+ * - folder_summary_state:     集計キャッシュの状態 (単一行、Issue #106)
  */
 @Database(
     entities = [
@@ -82,9 +85,12 @@ internal class PreservingOpenHelperFactory(
         RecentFolderEntity::class,
         TagEntity::class,
         FolderTagEntity::class,
-        UnreadableImageEntity::class
+        UnreadableImageEntity::class,
+        FolderSummaryEntity::class,
+        FolderRepresentativeEntity::class,
+        FolderSummaryStateEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -99,6 +105,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun folderListScrollPositionDao(): FolderListScrollPositionDao
     abstract fun recentFolderDao(): RecentFolderDao
     abstract fun tagDao(): TagDao
+    abstract fun folderSummaryCacheDao(): FolderSummaryCacheDao
 
     companion object {
         const val DATABASE_NAME = "fastest-picture-viewer.db"
@@ -124,7 +131,8 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_5_6,
                 MIGRATION_6_7,
                 MIGRATION_7_8,
-                MIGRATION_8_9
+                MIGRATION_8_9,
+                MIGRATION_9_10
             ).build()
             try {
                 // 実際にファイルを開かせる。破損ならここで例外になる
@@ -325,6 +333,54 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "ALTER TABLE `sync_state` ADD COLUMN `lastValidationSec` INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
+        /**
+         * v9 → v10: フォルダ一覧の集計キャッシュを追加する (Issue #106)。
+         *
+         * 既存の `images` から初回に作り直すため、テーブルは空で作る。
+         * 起動時にキャッシュが無ければ従来どおり集計クエリを実行し、
+         * その結果を保存する（データは失われない）。
+         *
+         * 除外フォルダ・実体の無い画像はキャッシュ作成時に反映済みのため、
+         * キャッシュ側にフラグは持たない。
+         */
+        internal val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `folder_summaries` (
+                        `folderKey` TEXT NOT NULL,
+                        `volumeName` TEXT NOT NULL,
+                        `relativePath` TEXT NOT NULL,
+                        `imageCount` INTEGER NOT NULL,
+                        `latestModifiedSec` INTEGER NOT NULL,
+                        PRIMARY KEY(`folderKey`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `folder_representatives` (
+                        `folderKey` TEXT NOT NULL,
+                        `id` TEXT NOT NULL,
+                        `dateModifiedSec` INTEGER NOT NULL,
+                        `size` INTEGER NOT NULL,
+                        PRIMARY KEY(`folderKey`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `folder_summary_state` (
+                        `id` INTEGER NOT NULL,
+                        `rebuiltAtMs` INTEGER NOT NULL,
+                        `imageCount` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
                 )
             }
         }

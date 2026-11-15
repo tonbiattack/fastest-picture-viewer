@@ -23,11 +23,19 @@ import kotlinx.coroutines.flow.StateFlow
  */
 interface GalleryRepository {
 
-    /** フォルダ一覧 (集計行) を購読する */
+    /** フォルダ一覧 (集計行) を購読する。キャッシュ済みならその結果を返す (Issue #106) */
     fun observeFolderSummaries(): Flow<List<FolderSummaryRow>>
 
     /** フォルダ代表サムネイルを購読する */
     fun observeRepresentatives(): Flow<List<RepresentativeImageRow>>
+
+    /**
+     * フォルダ一覧キャッシュを今の DB 内容から作り直す (Issue #106)。
+     *
+     * 同期の完了時など、`images` の内容が変わった可能性があるときに呼ぶ。
+     * 35 万行の集計を伴うため、UI スレッドから呼ばないこと。
+     */
+    suspend fun rebuildFolderSummaryCache()
 
     /** 指定フォルダの画像一覧を購読する */
     fun observeImages(folderKey: String): Flow<List<ImageItem>>

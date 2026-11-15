@@ -52,6 +52,8 @@ class ImageViewerViewModelTest {
     ) : GalleryRepository {
         override val syncStatus: StateFlow<SyncStatus> = MutableStateFlow(SyncStatus.IDLE)
         override fun observeFolderSummaries(): Flow<List<FolderSummaryRow>> = MutableStateFlow(emptyList())
+        override suspend fun rebuildFolderSummaryCache() = Unit
+
         override fun observeRepresentatives(): Flow<List<RepresentativeImageRow>> = MutableStateFlow(emptyList())
         override fun observeImages(folderKey: String): Flow<List<ImageItem>> = MutableStateFlow(images)
 

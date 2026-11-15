@@ -50,6 +50,78 @@ data class VolumeSyncStateEntity(
 )
 
 /**
+ * フォルダ一覧の集計結果を保持するキャッシュ (Issue #106)。
+ *
+ * 起動時に 35 万行を GROUP BY で集計すると実機で約 3.7 秒かかる。
+ * 同期で内容が変わったときだけ作り直し、起動時はこのテーブルを読む。
+ * 読み出しはフォルダ数（2,667 行）分の単純な SELECT で済む。
+ *
+ * [images] とは別に持つため、件数が古い瞬間があっても一覧は表示できる
+ * (stale-while-revalidate)。同期完了時に [rebuiltAtSec] を更新する。
+ */
+@Entity(tableName = "folder_summaries")
+data class FolderSummaryEntity(
+    /** フォルダ識別子 (volumeName:relativePath) */
+    @PrimaryKey @ColumnInfo(name = "folderKey") val folderKey: String,
+
+    /** MediaStore のボリューム名 */
+    @ColumnInfo(name = "volumeName") val volumeName: String,
+
+    /** 正規化済みの相対パス (末尾スラッシュあり) */
+    @ColumnInfo(name = "relativePath") val relativePath: String,
+
+    /** フォルダ内の画像枚数 */
+    @ColumnInfo(name = "imageCount") val imageCount: Long,
+
+    /** フォルダ内で最も新しい更新日時 (エポック秒)。一覧の並び順に使う */
+    @ColumnInfo(name = "latestModifiedSec") val latestModifiedSec: Long
+)
+
+/**
+ * フォルダ代表サムネイルのキャッシュ (Issue #106)。
+ *
+ * [FolderSummaryEntity] と同じ理由で持つ。代表画像は自然順先頭の 1 枚なので、
+ * 集計と一緒に作り直す。
+ */
+@Entity(tableName = "folder_representatives")
+data class FolderRepresentativeEntity(
+    /** フォルダ識別子 (volumeName:relativePath) */
+    @PrimaryKey @ColumnInfo(name = "folderKey") val folderKey: String,
+
+    /** 代表画像の content URI 文字列 */
+    @ColumnInfo(name = "id") val id: String,
+
+    /** 代表画像の更新日時。サムネイルキャッシュのキーに使う */
+    @ColumnInfo(name = "dateModifiedSec") val dateModifiedSec: Long,
+
+    /** 代表画像のファイルサイズ。サムネイルキャッシュのキーに使う */
+    @ColumnInfo(name = "size") val size: Long
+)
+
+/**
+ * フォルダ一覧キャッシュの状態 (単一行、id=1 固定)。
+ *
+ * 起動時にキャッシュが使えるかの判定と、同期で作り直すかの判定に使う。
+ */
+@Entity(tableName = "folder_summary_state")
+data class FolderSummaryStateEntity(
+    /** 固定値 1 */
+    @PrimaryKey val id: Int = 1,
+
+    /**
+     * キャッシュを最後に作り直した時刻 (エポックミリ秒)。
+     * 0 は未作成。起動時はこれが 0 でなければキャッシュを即表示する。
+     */
+    @ColumnInfo(name = "rebuiltAtMs") val rebuiltAtMs: Long,
+
+    /**
+     * 作り直した時点の画像総数。
+     * 同期後の総数と一致すれば「作り直し不要」と判断する材料にする。
+     */
+    @ColumnInfo(name = "imageCount") val imageCount: Long
+)
+
+/**
  * フォルダ一覧から除外するフォルダ。
  *
  * [relativePath] は末尾スラッシュに正規化したパス接頭辞で、配下のサブフォルダにも適用する。

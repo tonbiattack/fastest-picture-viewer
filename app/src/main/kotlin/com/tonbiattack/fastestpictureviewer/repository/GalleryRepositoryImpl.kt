@@ -13,6 +13,9 @@ import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderListScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderScrollPositionEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
+import com.tonbiattack.fastestpictureviewer.data.FolderRepresentativeEntity
+import com.tonbiattack.fastestpictureviewer.data.FolderSummaryEntity
+import com.tonbiattack.fastestpictureviewer.data.FolderSummaryStateEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderTagEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderTagNameRow
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
@@ -33,6 +36,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -80,6 +85,7 @@ class GalleryRepositoryImpl(
     private val folderListScrollPositionDao = db.folderListScrollPositionDao()
     private val recentFolderDao = db.recentFolderDao()
     private val tagDao = db.tagDao()
+    private val summaryCacheDao = db.folderSummaryCacheDao()
 
     /** 同期の二重実行を防ぐ。実行中の要求は待たずにスキップする */
     private val syncMutex = Mutex()
@@ -90,17 +96,109 @@ class GalleryRepositoryImpl(
     private val _syncStatus = MutableStateFlow(SyncStatus.IDLE)
     override val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
 
-    override fun observeFolderSummaries(): Flow<List<FolderSummaryRow>> =
-        imageDao.observeFolderSummaries()
-            .onStart { StartupTrace.mark("folder_summaries_start") }
-            .onEach { StartupTrace.mark("folder_summaries_emitted") }
+    override fun observeRepresentatives(): Flow<List<RepresentativeImageRow>> =
+        summaryCacheDao.observeState()
+            .distinctUntilChanged()
+            .flatMapLatest { state ->
+                if (isFolderSummaryCacheReady(state)) {
+                    // 集計キャッシュと一緒に保存した代表画像を読む (Issue #106)。
+                    // 毎回 35 万行から MIN() を取ると実機で約 1 秒かかる
+                    summaryCacheDao.observeRepresentatives().map { rows ->
+                        rows.map { row ->
+                            RepresentativeImageRow(
+                                id = row.id,
+                                folderKey = row.folderKey,
+                                dateModifiedSec = row.dateModifiedSec,
+                                size = row.size
+                            )
+                        }
+                    }
+                } else {
+                    imageDao.observeRepresentatives()
+                        .onStart { StartupTrace.mark("representatives_start") }
+                        .onEach { StartupTrace.mark("representatives_emitted") }
+                }
+            }
             .flowOn(Dispatchers.IO)
 
-    override fun observeRepresentatives(): Flow<List<RepresentativeImageRow>> =
-        imageDao.observeRepresentatives()
-            .onStart { StartupTrace.mark("representatives_start") }
-            .onEach { StartupTrace.mark("representatives_emitted") }
+    /** キャッシュが使えるかを購読する。未作成なら false（内部判定用） */
+    private fun isFolderSummaryCacheReady(state: FolderSummaryStateEntity?): Boolean =
+        state != null && state.rebuiltAtMs > 0L
+
+    /**
+     * フォルダ一覧を購読する (Issue #106)。
+     *
+     * キャッシュが作成済みなら [folder_summaries]（2,667 行）を読むだけ。
+     * 未作成なら従来の集計クエリへ自動で切り替わる。
+     */
+    override fun observeFolderSummaries(): Flow<List<FolderSummaryRow>> =
+        summaryCacheDao.observeState()
+            .distinctUntilChanged()
+            .flatMapLatest { state ->
+                if (isFolderSummaryCacheReady(state)) {
+                    summaryCacheDao.observeSummaries().map { rows ->
+                        rows.map { row ->
+                            FolderSummaryRow(
+                                folderKey = row.folderKey,
+                                volumeName = row.volumeName,
+                                relativePath = row.relativePath,
+                                imageCount = row.imageCount,
+                                latestModifiedSec = row.latestModifiedSec
+                            )
+                        }
+                    }
+                } else {
+                    // 初回起動・キャッシュ未作成時のみ従来の集計を使う
+                    imageDao.observeFolderSummaries()
+                        .onStart { StartupTrace.mark("folder_summaries_start") }
+                        .onEach { StartupTrace.mark("folder_summaries_emitted") }
+                }
+            }
+            .onStart { StartupTrace.mark("folder_summaries_subscribed") }
             .flowOn(Dispatchers.IO)
+
+    /**
+     * フォルダ一覧キャッシュを作り直す (Issue #106)。
+     *
+     * 35 万行の集計を伴うため、同期の完了時など限られた契機だけ呼ぶ。
+     * 既存の集計クエリをそのまま使い、結果をキャッシュ用テーブルへ写す。
+     */
+    override suspend fun rebuildFolderSummaryCache() {
+        withContext(Dispatchers.IO) {
+        val started = SystemClock.elapsedRealtime()
+        try {
+            val summaries = imageDao.getAllFolderSummaries()
+            val representatives = imageDao.getAllRepresentatives()
+            val total = imageDao.count()
+            summaryCacheDao.replaceAll(
+                summaries = summaries.map { row ->
+                    FolderSummaryEntity(
+                        folderKey = row.folderKey,
+                        volumeName = row.volumeName,
+                        relativePath = row.relativePath,
+                        imageCount = row.imageCount,
+                        latestModifiedSec = row.latestModifiedSec
+                    )
+                },
+                representatives = representatives.map { row ->
+                    FolderRepresentativeEntity(
+                        folderKey = row.folderKey,
+                        id = row.id,
+                        dateModifiedSec = row.dateModifiedSec,
+                        size = row.size
+                    )
+                },
+                imageCount = total,
+                rebuiltAtMs = System.currentTimeMillis()
+            )
+            StartupTrace.task("folder_summary_cache_rebuild", SystemClock.elapsedRealtime() - started)
+        } catch (t: Exception) {
+            // キャッシュ作成の失敗で一覧を壊さない。次回の同期で再試行する
+            Log.w("FPV-Perf", "folder summary cache rebuild failed", t)
+        }
+        }
+    }
+
     /**
      * 自然順キーが未設定の旧DB行をバックグラウンドで埋める (Issue #49)。
      *
@@ -885,6 +983,13 @@ class GalleryRepositoryImpl(
             removedCount = removed,
             wasFullScan = isFull
         )
+
+        // 内容が変わった（または初回）ときだけ、フォルダ一覧キャッシュを作り直す (Issue #106)。
+        // 変化が無ければ作り直さず、起動時の読み出しをキャッシュのまま維持する
+        val hasChanges = added > 0 || updated > 0 || removed > 0
+        if (hasChanges || summaryCacheDao.getState() == null) {
+            rebuildFolderSummaryCache()
+        }
         return result
     }
 
