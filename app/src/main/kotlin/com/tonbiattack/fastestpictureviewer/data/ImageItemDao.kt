@@ -49,6 +49,69 @@ interface ImageItemDao {
     fun observeFolderSummaries(): Flow<List<FolderSummaryRow>>
 
     /**
+     * フォルダ集計を一度だけ取得する (Issue #106)。
+     * 集計キャッシュを作り直すときに使う。購読はしない。
+     */
+    @Query(
+        """
+        SELECT folderKey,
+               MAX(volumeName) AS volumeName,
+               MAX(relativePath) AS relativePath,
+               COUNT(*) AS imageCount,
+               MAX(dateModifiedSec) AS latestModifiedSec
+        FROM images
+        WHERE NOT EXISTS (
+            SELECT 1 FROM excluded_folders AS excluded
+            WHERE excluded.volumeName = images.volumeName
+              AND (
+                  (excluded.relativePath = '' AND images.relativePath = '')
+                  OR (excluded.relativePath <> ''
+                      AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
+              )
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM unreadable_images AS unreadable
+            WHERE unreadable.itemId = images.id
+        )
+        GROUP BY folderKey
+        ORDER BY latestModifiedSec DESC, folderKey ASC
+        """
+    )
+    suspend fun getAllFolderSummaries(): List<FolderSummaryRow>
+
+    /** 代表サムネイルを一度だけ取得する (Issue #106、キャッシュ作成用) */
+    @Query(
+        """
+        SELECT id AS id,
+               folderKey AS folderKey,
+               dateModifiedSec AS dateModifiedSec,
+               size AS size,
+               MIN(
+                   (CASE WHEN naturalSortKey = '' THEN '1' ELSE '0' END) ||
+                   naturalSortKey || char(1) ||
+                   sortName || char(1) ||
+                   printf('%020d', mediaId)
+               ) AS minOrderKey
+        FROM images INDEXED BY index_images_folderKey_naturalSortKey_sortName_mediaId
+        WHERE NOT EXISTS (
+            SELECT 1 FROM excluded_folders AS excluded
+            WHERE excluded.volumeName = images.volumeName
+              AND (
+                  (excluded.relativePath = '' AND images.relativePath = '')
+                  OR (excluded.relativePath <> ''
+                      AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
+              )
+        )
+          AND NOT EXISTS (
+            SELECT 1 FROM unreadable_images AS unreadable
+            WHERE unreadable.itemId = images.id
+        )
+        GROUP BY folderKey
+        """
+    )
+    suspend fun getAllRepresentatives(): List<RepresentativeImageRow>
+
+    /**
      * 各フォルダの代表サムネイル (ファイル名の自然順で先頭の画像) を購読する (Issue #49)。
      *
      * - 並び順は画像一覧と同じ「naturalSortKey → sortName → mediaId」の昇順で、

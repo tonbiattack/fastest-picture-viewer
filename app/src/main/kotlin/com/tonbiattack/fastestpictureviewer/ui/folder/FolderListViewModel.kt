@@ -225,6 +225,7 @@ class FolderListViewModel(
     }
 
     private val dataSource = combine(
+        // Issue #106: キャッシュ済みの集計があればそれを読む（未作成なら内部で従来の集計へ切り替わる）
         repository.observeFolderSummaries(),
         // 代表サムネイル・お気に入りの到着を待たず、フォルダ一覧を先に表示する
         repository.observeRepresentatives().onStart { emit(emptyList()) },

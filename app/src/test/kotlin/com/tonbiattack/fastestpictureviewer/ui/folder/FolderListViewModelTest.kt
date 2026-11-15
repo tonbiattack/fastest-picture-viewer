@@ -107,6 +107,8 @@ class FolderListViewModelTest {
         override val syncStatus: StateFlow<SyncStatus> = statusFlow
 
         override fun observeFolderSummaries(): Flow<List<FolderSummaryRow>> = foldersFlow
+        override suspend fun rebuildFolderSummaryCache() = Unit
+
         override fun observeRepresentatives(): Flow<List<RepresentativeImageRow>> = representativesFlow
         override fun observeImages(folderKey: String): Flow<List<ImageItem>> =
             MutableStateFlow(emptyList())
