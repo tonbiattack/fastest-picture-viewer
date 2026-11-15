@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
@@ -285,12 +286,17 @@ class FolderListViewModel(
      *
      * 除外設定が変わったら内側の Room クエリを購読し直す。Room の無効化通知だけに頼らず、
      * 解除直後に戻ってきた場合でも最新の一覧を確実に取得するための保険。
+     *
+     * [distinctUntilChanged] は必須 (Issue #98)。除外フォルダは List を返すため map で Unit に
+     * 潰した後に onStart の Unit と Room の初回 emit が重なり、flatMapLatest が
+     * 35 万行の集計クエリを 2 回実行していた（実機で初回表示が約 2 秒悪化）。
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val uiState: StateFlow<FolderListUiState> =
         repository.observeExcludedFolders()
             .map { Unit }
             .onStart { emit(Unit) }
+            .distinctUntilChanged()
             .flatMapLatest {
                 combine(
                     dataSource,

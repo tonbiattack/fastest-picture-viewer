@@ -163,7 +163,10 @@ class MainActivity : ComponentActivity() {
                         appViewModel.requestManualFullSync(
                             MediaPermissions.accessLevel(this)
                         )
-                    }
+                    },
+                    // 一覧の初回フレームが出てから、背景の同期を始める (Issue #98)。
+                    // 同期は MediaStore の走査でディスクを占有し、一覧の初回クエリを待たせる
+                    onFirstFrameDrawn = { appViewModel.onFolderListDrawn() }
                 )
             }
         }

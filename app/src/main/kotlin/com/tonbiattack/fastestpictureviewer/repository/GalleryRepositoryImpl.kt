@@ -26,13 +26,17 @@ import com.tonbiattack.fastestpictureviewer.data.TagEntity
 import com.tonbiattack.fastestpictureviewer.data.TagWithCount
 import com.tonbiattack.fastestpictureviewer.data.UnreadableImageEntity
 import com.tonbiattack.fastestpictureviewer.data.VolumeSyncStateEntity
+import com.tonbiattack.fastestpictureviewer.perf.StartupTrace
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
@@ -88,10 +92,15 @@ class GalleryRepositoryImpl(
 
     override fun observeFolderSummaries(): Flow<List<FolderSummaryRow>> =
         imageDao.observeFolderSummaries()
+            .onStart { StartupTrace.mark("folder_summaries_start") }
+            .onEach { StartupTrace.mark("folder_summaries_emitted") }
+            .flowOn(Dispatchers.IO)
 
     override fun observeRepresentatives(): Flow<List<RepresentativeImageRow>> =
         imageDao.observeRepresentatives()
-
+            .onStart { StartupTrace.mark("representatives_start") }
+            .onEach { StartupTrace.mark("representatives_emitted") }
+            .flowOn(Dispatchers.IO)
     /**
      * 自然順キーが未設定の旧DB行をバックグラウンドで埋める (Issue #49)。
      *

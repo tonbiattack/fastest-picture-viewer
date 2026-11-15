@@ -24,9 +24,38 @@ class AppViewModel(private val repository: GalleryRepository) : ViewModel() {
     /** MediaStore 変更通知のデバウンス用。連続通知を 1 回の同期にまとめる */
     private var mediaChangeJob: Job? = null
 
+    /**
+     * 一覧の初回フレームが出るまで待ってから同期を始めるための状態 (Issue #98)。
+     *
+     * 同期は MediaStore の全件走査でディスクを占有する。起動直後に走らせると、
+     * フォルダ一覧の初回クエリ（35 万行の集計）がその後ろで待たされ、
+     * 実機で 5〜10 秒かかっていた。表示が済んでから始める。
+     */
+    private var folderListDrawn = false
+    private var pendingSyncLevel: MediaAccessLevel? = null
+
+    /** 一覧の初回フレームが描画された。待機中の同期があれば開始する */
+    fun onFolderListDrawn() {
+        if (folderListDrawn) return
+        folderListDrawn = true
+        val level = pendingSyncLevel ?: return
+        pendingSyncLevel = null
+        startAutoSync(level)
+    }
+
     /** アクセスレベルの変化を受け取る。許可されていれば自動同期を開始する */
     fun onAccessLevelChanged(level: MediaAccessLevel) {
         if (level == MediaAccessLevel.Denied) return
+        // 一覧の初回描画がまだなら、同期は描画後に回す (Issue #98)
+        if (!folderListDrawn) {
+            pendingSyncLevel = level
+            return
+        }
+        startAutoSync(level)
+    }
+
+    /** 起動時の自動同期。バックフィル → 同期 → 実体検証の順に実行する */
+    private fun startAutoSync(level: MediaAccessLevel) {
         // 旧DBの自然順キー不足を埋め、フォルダ代表サムネイルを正しい先頭画像に揃える (Issue #49)
         viewModelScope.launch {
             repository.backfillMissingNaturalSortKeys()
