@@ -105,6 +105,52 @@ Get-ChildItem app\build\outputs\apk\release -Filter *.apk
 
 導入・更新の詳しい手順は [APK の導入・更新手順](install-and-update.md) を参照する。
 
+## 4-3. リリースの自動化（タグ push）
+
+`v*` 形式のタグを push すると、GitHub Actions が署名済み APK をビルドして Release に添付する。
+手元でビルドする必要はない。
+
+```bash
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+`.github/workflows/release.yml` が行うこと:
+
+1. タグから `versionName` と `versionCode` を決める（`v1.2.3` → `1203`）
+2. 単体テストを実行（壊れたコードを配らないため）
+3. シークレットから鍵を取り出して署名する
+4. **証明書の SHA-256 を照合**する（別の鍵で署名すると既存利用者が更新できなくなるため）
+5. Release を作成し、APK を添付する
+
+### 必要なシークレット
+
+| 名前 | 内容 |
+| --- | --- |
+| `SIGNING_KEYSTORE_BASE64` | 鍵ファイル（`.jks`）を base64 にしたもの |
+| `SIGNING_STORE_PASSWORD` | キーストアのパスワード |
+| `SIGNING_KEY_ALIAS` | 鍵のエイリアス |
+| `SIGNING_KEY_PASSWORD` | 鍵のパスワード |
+
+登録は値を表示せずに行う。
+
+```powershell
+# 鍵を base64 にする（画面に出さずファイル経由で渡す）
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("$env:USERPROFILE\.android-signing\pictobi-release.jks")) |
+  Set-Content "$env:TEMP\keystore.b64" -Encoding ASCII -NoNewline
+Get-Content "$env:TEMP\keystore.b64" -Raw | gh secret set SIGNING_KEYSTORE_BASE64
+Remove-Item "$env:TEMP\keystore.b64"
+```
+
+パスワード類も同じく `gh secret set` に標準入力で渡す。**コマンド履歴やファイルに残さない。**
+
+### 注意
+
+- シークレットが未設定の場合、ワークフローは明示的に失敗する（未署名 APK を配らない）
+- 証明書が想定と違う場合も失敗する（更新不能になるのを防ぐ）
+- タグは `v<major>.<minor>.<patch>` 形式のみ受け付ける。打ち間違いで壊れた APK を出さないため
+- 鍵を GitHub に置くため、リポジトリの権限管理が重要になる。鍵のバックアップ（`docs` の方針）は引き続き手元に保持する
+
 ## 5. 漏えい・紛失時の扱い
 
 - 鍵やパスワードが漏えいした可能性がある場合は、新しい鍵への移行を検討する

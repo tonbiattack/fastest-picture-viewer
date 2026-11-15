@@ -1,0 +1,179 @@
+# タグ push で署名済み APK をビルドし、GitHub Release に添付する。
+#
+# 使い方:
+#   1. app/build.gradle.kts は変更不要（タグから versionCode / versionName を決める）
+#   2. git tag v0.3.0 && git push origin v0.3.0
+#
+# 必要なリポジトリシークレット（Settings > Secrets and variables > Actions）:
+#   SIGNING_KEYSTORE_BASE64  : リリース鍵 (.jks) を base64 にしたもの
+#   SIGNING_STORE_PASSWORD   : キーストアのパスワード
+#   SIGNING_KEY_ALIAS        : 鍵のエイリアス
+#   SIGNING_KEY_PASSWORD     : 鍵のパスワード
+#
+# 鍵の扱いは docs/signing-policy.md を参照する。
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# 同じタグで二重に走らせない
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build signed APK & publish release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 前回のタグからの差分でリリースノートを作るため、履歴をすべて取得する
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # タグからバージョンを決める。v0.2.0 なら versionName=0.2.0 / versionCode=200
+      # versionCode は major*10000 + minor*100 + patch で単調増加させる
+      - name: Resolve version from tag
+        id: version
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+
+          # v1.2.3 形式だけを受け付ける（打ち間違いで壊れた APK を出さない）
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::タグ '$TAG' は v<major>.<minor>.<patch> 形式ではありません"
+            exit 1
+          fi
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          CODE=$(( MAJOR * 10000 + MINOR * 100 + PATCH ))
+
+          echo "versionName=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "versionCode=$CODE" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "リリース: $VERSION (versionCode=$CODE)"
+
+      # 壊れたコードを配布しないよう、リリース前にもテストを通す
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --console=plain --no-daemon
+
+      - name: Decode keystore
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SIGNING_KEYSTORE_BASE64:-}" ]; then
+            echo "::error::SIGNING_KEYSTORE_BASE64 が未設定です。docs/signing-policy.md の手順でシークレットを登録してください"
+            exit 1
+          fi
+          KEYSTORE="$RUNNER_TEMP/pictobi-release.jks"
+          printf '%s' "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+          echo "FPV_KEYSTORE_PATH=$KEYSTORE" >> "$GITHUB_ENV"
+
+      - name: Assemble release APK
+        env:
+          FPV_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          FPV_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          FPV_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          ./gradlew :app:assembleRelease \
+            "-Pfpv.versionCode=${{ steps.version.outputs.versionCode }}" \
+            "-Pfpv.versionName=${{ steps.version.outputs.versionName }}" \
+            --console=plain --no-daemon
+
+      # 未署名のまま配布すると端末でインストールできない。
+      # さらに、別の鍵で署名すると既存利用者が更新できなくなるため、証明書を照合する
+      - name: Verify signature
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$APK" ]; then
+            echo "::error::release APK が見つかりません"
+            exit 1
+          fi
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner が見つかりません"
+            exit 1
+          fi
+
+          OUTPUT="$("$APKSIGNER" verify --print-certs "$APK")"
+          echo "$OUTPUT"
+
+          if ! echo "$OUTPUT" | grep -qF "$EXPECTED_CERT_SHA256"; then
+            echo "::error::署名証明書が想定と違います。既存利用者が更新できなくなります"
+            exit 1
+          fi
+        env:
+          # docs/signing-policy.md に記載の証明書 SHA-256（公開情報）
+          EXPECTED_CERT_SHA256: '974205ee404b36fd15c11171f0f6a10f040cdd78140228757fb20b0c99056310'
+
+      - name: Rename APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk \
+             "dist/Pictobi-${{ steps.version.outputs.versionName }}.apk"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          APK="dist/Pictobi-${{ steps.version.outputs.versionName }}.apk"
+
+          # 直前のタグを基点にリリースノートを自動生成する。
+          # 初回リリースなどで前のタグが無い場合は、全履歴を対象にする
+          PREVIOUS_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "前回のタグ: $PREVIOUS_TAG"
+            gh release create "$TAG" "$APK" \
+              --title "Pictobi ${{ steps.version.outputs.versionName }}" \
+              --generate-notes \
+              --notes-start-tag "$PREVIOUS_TAG" \
+              --latest \
+              --verify-tag
+          else
+            echo "前回のタグが無いため、全履歴からノートを作る"
+            gh release create "$TAG" "$APK" \
+              --title "Pictobi ${{ steps.version.outputs.versionName }}" \
+              --generate-notes \
+              --latest \
+              --verify-tag
+          fi
+
+      # 失敗したときの原因切り分け用。APK は残さない（未検証物を配らない）
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-reports
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
