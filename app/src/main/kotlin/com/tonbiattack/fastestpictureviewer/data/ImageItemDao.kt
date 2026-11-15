@@ -129,6 +129,29 @@ interface ImageItemDao {
     suspend fun getImagesByIds(ids: List<String>): List<ImageItem>
 
     /**
+     * 移動した写真の候補を探す (Issue #94)。
+     *
+     * ファイルを移動すると MediaStore の ID が変わるため、お気に入りの
+     * 紐付けが切れる。名前・サイズ・更新日時が一致する別の行を候補として返す。
+     * 取り違えを避けるため、呼び出し側で候補が 1 件だけの場合に限って採用する。
+     */
+    @Query(
+        """
+        SELECT * FROM images
+        WHERE displayName = :displayName
+          AND size = :size
+          AND dateModifiedSec = :dateModifiedSec
+          AND id != :excludeId
+        """
+    )
+    suspend fun findMoveCandidates(
+        displayName: String,
+        size: Long,
+        dateModifiedSec: Long,
+        excludeId: String
+    ): List<ImageItem>
+
+    /**
      * 画像のお気に入りを、フォルダの最終更新日時降順 → フォルダキー昇順 →
      * フォルダ内の自然順昇順で返す。
      *

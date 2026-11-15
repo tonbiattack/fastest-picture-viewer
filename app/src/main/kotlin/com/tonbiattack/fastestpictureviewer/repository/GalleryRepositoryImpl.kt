@@ -592,7 +592,6 @@ class GalleryRepositoryImpl(
     }
 
     override fun observeTags(): Flow<List<TagEntity>> = tagDao.observeTags()
-
     override fun observeTagsWithCount(): Flow<List<TagWithCount>> = tagDao.observeTagsWithCount()
 
     override fun observeFolderTagNames(): Flow<List<FolderTagNameRow>> =
@@ -703,6 +702,8 @@ class GalleryRepositoryImpl(
         var skippedVolumes = 0
         /** 削除を見送った理由 (Issue #92)。UI に伝える */
         val skippedDeletions = mutableSetOf<DeletionGuard.Reason>()
+        /** お気に入りを引き継いだ件数 (Issue #94) */
+        var migratedFavorites = 0
 
         val volumes = scanner.volumes()
         for (volumeName in volumes) {
@@ -783,6 +784,11 @@ class GalleryRepositoryImpl(
                             }
 
                             is DeletionGuard.Decision.Allowed -> {
+                                // 削除する前に、移動した写真のお気に入りを引き継ぐ (Issue #94)。
+                                // 行を消した後では元の情報を辿れないため、必ず先に行う
+                                migratedFavorites += migrateFavoritesBeforeDeletion(
+                                    cachedIds.toList()
+                                )
                                 deleteInChunks(cachedIds.toList())
                                 removed += cachedIds.size
                             }
@@ -858,7 +864,7 @@ class GalleryRepositoryImpl(
             "sync done: ${SystemClock.elapsedRealtime() - syncStartedAtMs}ms, " +
                 "full=$isFull added=$added updated=$updated removed=$removed " +
                 "skipped=$skippedVolumes failed=${failedVolumes.size} " +
-                "deletionSkipped=${skippedDeletions.size}"
+                "deletionSkipped=${skippedDeletions.size} favoritesMigrated=$migratedFavorites"
         )
 
         _syncStatus.value = SyncStatus(
@@ -883,6 +889,66 @@ class GalleryRepositoryImpl(
         withContext(Dispatchers.IO) {
             runCatching { volumeName in mountedVolumesProvider() }.getOrDefault(false)
         }
+
+    /**
+     * 削除される行のお気に入りを、移動先の行へ引き継ぐ (Issue #94)。
+     *
+     * `favorite_images` は content URI を主キーにしているため、SD カードへ
+     * 移動すると ID が変わり紐付けが切れる。削除前に、名前・サイズ・
+     * 更新日時が一致する別の行を探して付け替える。
+     *
+     * 候補が複数ある場合は取り違えを避けるため移行しない
+     * （別の写真にお気に入りが付く方が、消えるより悪い）。
+     *
+     * @return 引き継いだ件数
+     */
+    private suspend fun migrateFavoritesBeforeDeletion(idsToDelete: List<String>): Int {
+        if (idsToDelete.isEmpty()) return 0
+        val favorites = favoriteDao.getAll().associateBy { it.itemId }
+        // お気に入りが付いている行だけを対象にする（大半は該当しない）
+        val targets = idsToDelete.filter { it in favorites }
+        if (targets.isEmpty()) return 0
+
+        var migrated = 0
+        for (chunk in targets.chunked(DELETE_CHUNK_SIZE)) {
+            val rows = imageDao.getImagesByIds(chunk)
+            for (row in rows) {
+                val favorite = favorites[row.id] ?: continue
+                val candidates = imageDao.findMoveCandidates(
+                    displayName = row.displayName,
+                    size = row.size,
+                    dateModifiedSec = row.dateModifiedSec,
+                    excludeId = row.id
+                )
+                val alreadyFavorite = candidates.any { it.id in favorites }
+                when (val decision = FavoriteMigration.decide(candidates, alreadyFavorite)) {
+                    is FavoriteMigration.Decision.Migrate -> {
+                        favoriteDao.add(
+                            FavoriteImageEntity(
+                                itemId = decision.to.id,
+                                addedAtSec = favorite.addedAtSec
+                            )
+                        )
+                        // 移動元のお気に入りは残さない。残すと存在しない行を
+                        // 参照し続け、バックアップにも不要な項目が載る
+                        favoriteDao.remove(row.id)
+                        migrated++
+                    }
+
+                    is FavoriteMigration.Decision.Keep -> {
+                        // 移行先が無い・決められない場合は、元の行が消えるため
+                        // お気に入りも一緒に消す
+                        favoriteDao.remove(row.id)
+                        Log.i(
+                            "FPV-Perf",
+                            "favorite migration skipped: ${decision.reason}"
+                        )
+                    }
+                }
+            }
+        }
+        return migrated
+    }
 
     /** SQLite 変数上限を避けるため ID を分割して削除する */
     private suspend fun deleteInChunks(ids: List<String>) {        ids.chunked(DELETE_CHUNK_SIZE).forEach { chunk ->
