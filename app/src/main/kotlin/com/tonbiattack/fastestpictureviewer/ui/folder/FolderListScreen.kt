@@ -27,8 +27,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -46,7 +44,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -70,11 +67,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -89,6 +84,7 @@ import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
 import com.tonbiattack.fastestpictureviewer.data.TagWithCount
 import com.tonbiattack.fastestpictureviewer.perf.StartupTrace
 import com.tonbiattack.fastestpictureviewer.repository.MediaRescanHint
+import com.tonbiattack.fastestpictureviewer.ui.components.CompactSearchBar
 import com.tonbiattack.fastestpictureviewer.ui.components.FastScroller
 import com.tonbiattack.fastestpictureviewer.ui.components.ScrollToTopButton
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -164,6 +160,8 @@ fun FolderListScreen(
     var bulkAssignTargets by remember { mutableStateOf<List<String>?>(null) }
     var topMenuExpanded by remember { mutableStateOf(false) }
     var searchActive by remember { mutableStateOf(state.isSearching) }
+    // 検索バーを開いた回数。増えたときだけフォーカスとキーボードを出す (Issue #100)
+    var searchFocusRequest by remember { mutableIntStateOf(0) }
     var pendingExclude by remember { mutableStateOf<FolderUiModel?>(null) }
     // 検索結果から複数フォルダを選んで一括付与するモード (Issue #46)
     var selectionMode by remember { mutableStateOf(false) }
@@ -303,15 +301,21 @@ fun FolderListScreen(
                     actions = {
                         IconButton(
                             onClick = {
-                                if (searchActive) {
+                                if (searchActive || state.isSearching) {
                                     searchActive = false
                                     viewModel.clearSearch()
                                 } else {
                                     searchActive = true
+                                    searchFocusRequest++
                                 }
                             }
                         ) {
-                            Icon(Icons.Filled.Search, contentDescription = "フォルダを検索")
+                            // 検索中は閉じるアイコンにして、同じ位置で解除できることを示す (Issue #100)
+                            if (searchActive || state.isSearching) {
+                                Icon(Icons.Filled.Close, contentDescription = "検索を閉じる")
+                            } else {
+                                Icon(Icons.Filled.Search, contentDescription = "フォルダを検索")
+                            }
                         }
                         IconButton(onClick = viewModel::toggleFavoritesOnly) {
                             Icon(
@@ -405,10 +409,15 @@ fun FolderListScreen(
                 )
 
                 if (searchActive || state.isSearching) {
-                    SearchField(
+                    // 1 行のコンパクトな検索バー。一覧の表示領域を削らない (Issue #100)。
+                    // 検索モードの終了はヘッダーの検索アイコンで行う
+                    CompactSearchBar(
                         query = state.searchQuery,
                         onQueryChange = viewModel::onSearchQueryChange,
-                        onClear = viewModel::clearSearch
+                        onClear = viewModel::clearSearch,
+                        placeholder = "フォルダ名で検索",
+                        focusRequestKey = searchFocusRequest,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
                 }
                 // 検索中の一括付与操作。対象件数を常に見えるようにして誤操作を防ぐ (Issue #46)
@@ -613,34 +622,6 @@ fun FolderListScreen(
             }
         )
     }
-}
-
-@Composable
-private fun SearchField(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onClear: () -> Unit
-) {
-    val focusManager = LocalFocusManager.current
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        placeholder = { Text("フォルダ名で検索") },
-        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-        trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = onClear) {
-                    Icon(Icons.Filled.Close, contentDescription = "検索をクリア")
-                }
-            }
-        },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
-    )
 }
 
 @Composable

@@ -13,6 +13,8 @@
 | `device.ps1` | 端末情報・APK 導入・起動計測・スクリーンショット・ログ |
 | `transfer-to-sd.ps1` | PC のフォルダを SD カードへ転送（zip / 内部経由 / 直接） |
 | `ui.ps1` | 実機の UI 要素検索・タップ・長押し（uiautomator 経由） |
+| `benchmark.ps1` | 起動・復帰・フォルダ遷移の性能計測（P50/P95）。詳細は [benchmark.md](benchmark.md) |
+| `viewer-benchmark.ps1` | ビューアのスワイプ応答（ドラッグ開始→ページ描画）の計測。詳細は [benchmark.md](benchmark.md#8-ビューアのスワイプ応答issue-101) |
 | `ui_dump.py` | 取得した UI XML の要素一覧（UTF-8 表示用） |
 | `ui_find.py` | 取得した UI XML から指定文字列の要素と中央座標を表示 |
 | `ui_switches.py` | UI XML から `checkable` な要素の `checked` 状態を一覧表示 |

@@ -73,9 +73,13 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.imageLoader
+import coil.memory.MemoryCache
 import com.tonbiattack.fastestpictureviewer.R
-import com.tonbiattack.fastestpictureviewer.core.image.toImageRequest
+import com.tonbiattack.fastestpictureviewer.core.image.GalleryImageCacheKeys
+import com.tonbiattack.fastestpictureviewer.core.image.toViewerImageRequest
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
+import com.tonbiattack.fastestpictureviewer.perf.ViewerTrace
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -92,6 +96,7 @@ import kotlin.math.roundToInt
  * - ダブルタップした位置を中心にズーム (Issue #38)
  * - 共有・画像情報シート (Issue #40)
  * - 戻る際に最後に見ていた画像 ID を一覧へ返す (Issue #35)
+ * - 前後画像の先読みと重複リクエスト抑制でスワイプを滑らかにする (Issue #101)
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -105,7 +110,6 @@ fun ImageViewerScreen(
     val adjacent = viewModel.adjacentFolders.collectAsStateWithLifecycle().value
     val context = LocalContext.current
     val imageLoader = context.imageLoader
-    val containerSize = LocalWindowInfo.current.containerSize
     val view = LocalView.current
     val scope = rememberCoroutineScope()
 
@@ -115,6 +119,10 @@ fun ImageViewerScreen(
     var showInfo by remember { mutableStateOf(false) }
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubValue by remember { mutableStateOf(0f) }
+
+    // 先読みと表示で同じデコードサイズを使う (Issue #101)。
+    // 画面の利用可能サイズを基準にすると、レイアウト前から同じ値で要求できる
+    val containerSize = LocalWindowInfo.current.containerSize
 
     // フルスクリーン中はシステムバーを隠し、画面離脱時は必ず戻す
     DisposableEffect(immersive, view) {
@@ -171,15 +179,63 @@ fun ImageViewerScreen(
         }
     }
 
-    // 前後 1 枚だけ画面サイズで先読みする。全件先読みはせず、メモリ圧迫時はキャッシュ側で解放される
-    LaunchedEffect(pagerState.currentPage, state.images, containerSize) {
-        val width = containerSize.width
-        val height = containerSize.height
-        if (width <= 0 || height <= 0) return@LaunchedEffect
-        val page = pagerState.currentPage
-        listOf(page - 1, page + 1).forEach { index ->
-            val image = state.images.getOrNull(index) ?: return@forEach
-            imageLoader.enqueue(image.toImageRequest(context, width, height))
+    // スワイプの応答を記録する (Issue #101)。ドラッグ開始からページ確定までを出す。
+    // 計測用のフラグはコンポーズを起こさないよう、状態ではなく参照で持つ
+    val swipeTracker = remember { SwipeTraceTracker() }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { inProgress ->
+                if (inProgress) swipeTracker.onSwipeStart()
+            }
+    }
+    LaunchedEffect(currentIndex) {
+        // ページが変わった時点を終点にする。画像はこの直後に描かれる
+        swipeTracker.onPageChanged()
+        // 表示する画像が既にメモリキャッシュにあるか（＝先読みが効いたか）を記録する。
+        // Coil は構成済みページで onSuccess を再通知しないため、キーを直接引いて判定する
+        val shown = state.images.getOrNull(currentIndex)
+        if (shown != null) {
+            val cached = imageLoader.memoryCache?.get(
+                MemoryCache.Key(GalleryImageCacheKeys.forItem(shown))
+            ) != null
+            ViewerTrace.onImageLoaded(fromMemoryCache = cached)
+        }
+    }
+
+    // 前後の画像を先読みする (Issue #101)。
+    // 表示と同じリクエスト設定で温めておき、スワイプ時はメモリキャッシュから出せるようにする。
+    // ページを素早く切り替えたときは前回の先読みを打ち切り、デコード待ちを溜めない
+    val width = containerSize.width
+    val height = containerSize.height
+    LaunchedEffect(currentIndex, state.images.size, width, height) {
+        if (width <= 0 || height <= 0 || state.images.size <= 1) return@LaunchedEffect
+        // 進む向きが分かっていれば、その側を深めに先読みする。
+        // 読み取りはコルーチン内で行い、スクロール中に再コンポーズを起こさない
+        val direction = when {
+            pagerState.lastScrolledForward -> 1
+            pagerState.lastScrolledBackward -> -1
+            else -> 0
+        }
+        // 開いた直後はいきなり 4 枚もデコードすると初回表示が遅れるため 1 枚ずつにする
+        val window = if (direction == 0) 1 else ViewerPrefetch.DEFAULT_WINDOW
+        val targets = ViewerPrefetch.indicesToPrefetch(
+            page = currentIndex,
+            count = state.images.size,
+            window = window,
+            direction = direction
+        )
+        // 先読みはこのコルーチンに閉じる。ページが変わったら LaunchedEffect ごと
+        // キャンセルされ、未完了のデコードも打ち切られる
+        coroutineScope {
+            targets.forEach { index ->
+                val image = state.images.getOrNull(index) ?: return@forEach
+                launch {
+                    runCatching {
+                        imageLoader.execute(image.toViewerImageRequest(context, width, height))
+                    }
+                }
+            }
         }
     }
 
@@ -306,6 +362,11 @@ fun ImageViewerScreen(
             Column(modifier = Modifier.fillMaxSize().padding(padding)) {
                 HorizontalPager(
                     state = pagerState,
+                    // 前後のページを常に構成しておく。スワイプを始めてから初めて
+                    // 画像リクエストが走る状態を避ける (Issue #101)
+                    beyondViewportPageCount = 1,
+                    // 画像が差し替わっても位置がずれないよう、安定した ID をキーにする
+                    key = { page -> state.images.getOrNull(page)?.id ?: page },
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
@@ -313,6 +374,8 @@ fun ImageViewerScreen(
                     val image = state.images.getOrNull(page) ?: return@HorizontalPager
                     ZoomableImage(
                         image = image,
+                        widthPx = width,
+                        heightPx = height,
                         onSingleTap = { immersive = !immersive }
                     )
                 }
@@ -451,11 +514,15 @@ private fun InfoRow(label: String, value: String) {
 @Composable
 private fun ZoomableImage(
     image: ImageItem,
+    widthPx: Int,
+    heightPx: Int,
     onSingleTap: () -> Unit
 ) {
     val context = LocalContext.current
-    val request = remember(image.id, image.dateModifiedSec, image.size) {
-        image.toImageRequest(context)
+    // 先読みと同じサイズ・精度で要求する。ここが揃っていないとメモリキャッシュが
+    // 再利用されず、スワイプのたびに再デコードが走る (Issue #101)
+    val request = remember(image.id, image.dateModifiedSec, image.size, widthPx, heightPx) {
+        image.toViewerImageRequest(context, widthPx, heightPx)
     }
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -530,6 +597,37 @@ private fun ZoomableImage(
                     translationY = offset.y
                 }
         )
+    }
+}
+
+/**
+ * スワイプ応答の計測ヘルパー (Issue #101)。
+ *
+ * スナップアニメーションの完了ではなく「ページが切り替わった時点」を終点にする。
+ * アニメーションを待つと数値がアニメーション時間に埋もれ、デコードや描画の
+ * 引っかかりを評価できないため。
+ *
+ * 連続スワイプでは最初の開始時刻を保ち、途中のページ通過では記録しない。
+ * 指を離して落ち着いた 1 回分だけを残す。
+ */
+private class SwipeTraceTracker {
+
+    private var swiping = false
+    private var pending = false
+
+    fun onSwipeStart() {
+        if (swiping) return
+        swiping = true
+        pending = true
+        ViewerTrace.onSwipeStart()
+    }
+
+    /** ページが切り替わった。スワイプ中なら終点を記録して待機状態に戻す */
+    fun onPageChanged() {
+        if (!swiping || !pending) return
+        pending = false
+        swiping = false
+        ViewerTrace.onPageDrawn()
     }
 }
 

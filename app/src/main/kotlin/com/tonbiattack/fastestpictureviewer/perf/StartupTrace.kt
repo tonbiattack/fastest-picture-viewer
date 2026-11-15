@@ -70,6 +70,15 @@ object StartupTrace {
     /** プロセス開始からの経過ミリ秒 */
     fun sinceProcessStart(): Long = readElapsed() - processStartElapsed
 
+    /**
+     * 数値以外の短い記録を出す (Issue #101)。
+     * 例: 画像がメモリキャッシュから返ったか。区間計測と違い、集計は scripts 側で行う。
+     */
+    fun event(message: String) {
+        if (!BuildConfig.PERF_TRACE) return
+        log(message)
+    }
+
     private fun readElapsed(): Long =
         runCatching { SystemClock.elapsedRealtime() }.getOrElse { 0L }
 
