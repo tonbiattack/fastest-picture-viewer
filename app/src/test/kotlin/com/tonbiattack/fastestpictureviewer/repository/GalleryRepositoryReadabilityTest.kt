@@ -67,7 +67,10 @@ class GalleryRepositoryReadabilityTest {
             db = db,
             scanner = MediaStoreScanner(context),
             nowSeconds = { now },
-            readableProbe = ImageReadableProbe { uri -> uri in readableUris }
+            readableProbe = ImageReadableProbe { uri -> uri in readableUris },
+            // テストでは対象ボリュームを常に読める扱いにする (Issue #93)。
+            // 実機では SD の状態で変わるが、ここではフォルダ判定だけを見る
+            mountedVolumesProvider = { setOf("v") }
         )
     }
 
@@ -316,7 +319,7 @@ class GalleryRepositoryReadabilityTest {
     }
 
     @Test
-    fun `実体確認はフォルダあたり最大4回のプローブで済む`() = runTest {
+    fun `実体確認はフォルダあたり最大5回のプローブで済む`() = runTest {
         var probes = 0
         val context = ApplicationProvider.getApplicationContext<Context>()
         val counting = GalleryRepositoryImpl(
@@ -326,7 +329,8 @@ class GalleryRepositoryReadabilityTest {
             readableProbe = ImageReadableProbe {
                 probes++
                 false
-            }
+            },
+            mountedVolumesProvider = { setOf("v") }
         )
         // 大量フォルダでもプローブ回数が増えないこと (性能ガードレール)
         db.imageItemDao().upsertAll(
@@ -337,6 +341,7 @@ class GalleryRepositoryReadabilityTest {
 
         counting.verifyFolderFromThumbnailFailure("v:big/")
 
-        assertTrue("プローブ回数が多すぎる: $probes", probes <= 4)
+        // 再試行 (代表 2 回目) + サンプル 3 件 = 最大 5 回 (Issue #93 で再試行を追加)
+        assertTrue("プローブ回数が多すぎる: $probes", probes <= 5)
     }
 }
