@@ -123,6 +123,51 @@ function Start-App {
     Start-Sleep -Seconds 3
 }
 
+# 現在の画面種別を返す。uiautomator dump は起動直後などに失敗するため数回やり直す
+function Get-ScreenKind {
+    param([string]$Target)
+
+    for ($i = 0; $i -lt 3; $i++) {
+        Invoke-AdbText @('-s', $Target, 'shell', 'uiautomator', 'dump', '/sdcard/fpv-viewer.xml') | Out-Null
+        $xml = Invoke-AdbText @('-s', $Target, 'shell', 'cat', '/sdcard/fpv-viewer.xml')
+        Invoke-AdbText @('-s', $Target, 'shell', 'rm', '/sdcard/fpv-viewer.xml') | Out-Null
+
+        if ($xml -match 'content-desc="フォルダを検索"' -or $xml -match 'content-desc="検索を閉じる"') {
+            return 'folder_list'
+        }
+        if ($xml -match 'content-desc="画像を検索"') { return 'grid' }
+        if ($xml -match 'ページスクラバー' -or $xml -match 'text="\d+ / \d+"') { return 'viewer' }
+        if ($xml -match '<hierarchy') { return 'other_view' }
+        # dump 自体が失敗した（空・null root）。少し待ってやり直す
+        Start-Sleep -Seconds 1
+    }
+    return 'unknown'
+}
+
+# フォルダ一覧が出るまで戻る。
+# 前回の計測でビューアやグリッドを開いたままだと、再起動時にその画面が復元されるため。
+# 画面が読めない状態で BACK を押すとホームまで抜けるので、種別が分かったときだけ押す
+function Reset-To-FolderList {
+    param([string]$Target)
+
+    for ($i = 0; $i -lt 4; $i++) {
+        $kind = Get-ScreenKind -Target $Target
+        if ($kind -eq 'folder_list') { return $true }
+
+        if ($kind -eq 'grid' -or $kind -eq 'viewer') {
+            Invoke-AdbText @('-s', $Target, 'shell', 'input', 'keyevent', 'KEYCODE_BACK') | Out-Null
+            Start-Sleep -Seconds 2
+            continue
+        }
+
+        # other_view / unknown はアプリが前面に無いか、読めていない。
+        # BACK は押さずに起動し直す
+        Invoke-AdbText @('-s', $Target, 'shell', 'am', 'start', '-n', "$Package/$Activity") | Out-Null
+        Start-Sleep -Seconds 3
+    }
+    return ((Get-ScreenKind -Target $Target) -eq 'folder_list')
+}
+
 # ビューアを開く。フォルダを開き、先頭の画像をタップする
 function Open-Viewer {
     param([string]$Target)
@@ -130,20 +175,86 @@ function Open-Viewer {
     $size = Get-ScreenSize -Target $Target
 
     if ($Folder) {
+        # 対象フォルダが一覧の下の方にあると見つからないため、まず検索で絞り込む。
+        # adb の input text は IME の状態に左右されるため、送れなければ一覧をそのまま使う
+        $search = Find-NodeCenter -Target $Target -Pattern 'content-desc="フォルダを検索"'
+        if ($null -ne $search) {
+            Invoke-AdbText @('-s', $Target, 'shell', 'input', 'tap', "$($search.X)", "$($search.Y)") | Out-Null
+            Start-Sleep -Seconds 2
+            Invoke-AdbText @('-s', $Target, 'shell', 'input', 'text', $Folder) | Out-Null
+            Start-Sleep -Seconds 3
+        }
+
         $node = Find-NodeCenter -Target $Target -Pattern "content-desc=`"[^`"]*$([regex]::Escape($Folder))"
-        if ($null -eq $node) { throw "フォルダが見つかりません: $Folder" }
+        if ($null -eq $node) {
+            # 検索で絞り込めなかった場合は、検索を解除して先頭のフォルダに切り替える
+            Write-Host ("フォルダ '{0}' を検索で開けませんでした。先頭のフォルダで計測します。" -f $Folder) `
+                -ForegroundColor Yellow
+            $close = Find-NodeCenter -Target $Target -Pattern 'content-desc="検索を閉じる"'
+            if ($null -ne $close) {
+                Invoke-AdbText @('-s', $Target, 'shell', 'input', 'tap', "$($close.X)", "$($close.Y)") | Out-Null
+                Start-Sleep -Seconds 2
+            }
+            $node = Get-FirstFolderCell -Target $Target -Size $size
+        }
+        if ($null -eq $node) { throw 'フォルダのセルを取得できませんでした' }
+        # セルの中央ではなく少し上を押す。中央はフォルダ名のテキストに当たり、
+        # 拡大縮小やスクロール判定に吸われることがある
         Invoke-AdbText @('-s', $Target, 'shell', 'input', 'tap', "$($node.X)", "$($node.Y)") | Out-Null
     } else {
-        # 一覧の左上のセル（先頭フォルダ）
-        Invoke-AdbText @('-s', $Target, 'shell', 'input', 'tap',
-            "$([int]($size.Width * 0.25))", "$([int]($size.Height * 0.3))") | Out-Null
+        $node = Get-FirstFolderCell -Target $Target -Size $size
+        if ($null -eq $node) { throw 'フォルダのセルを取得できませんでした' }
+        Invoke-AdbText @('-s', $Target, 'shell', 'input', 'tap', "$($node.X)", "$($node.Y)") | Out-Null
     }
-    Start-Sleep -Seconds 2
+    Start-Sleep -Seconds 4
 
-    # グリッドの 1 枚目
-    Invoke-AdbText @('-s', $Target, 'shell', 'input', 'tap',
-        "$([int]($size.Width * 0.15))", "$([int]($size.Height * 0.3))") | Out-Null
-    Start-Sleep -Seconds 3
+    # グリッドの 1 枚目。座標決め打ちではなく、画像の content-desc から取る
+    $cell = Find-FirstImageCell -Target $Target
+    if ($null -eq $cell) { throw '画像のセルを取得できませんでした' }
+    Invoke-AdbText @('-s', $Target, 'shell', 'input', 'tap', "$($cell.X)", "$($cell.Y)") | Out-Null
+    Start-Sleep -Seconds 4
+}
+
+# フォルダ一覧の先頭セルの中心（やや上寄り）を返す
+function Get-FirstFolderCell {
+    param([string]$Target, [pscustomobject]$Size)
+
+    Invoke-AdbText @('-s', $Target, 'shell', 'uiautomator', 'dump', '/sdcard/fpv-viewer.xml') | Out-Null
+    $xml = Invoke-AdbText @('-s', $Target, 'shell', 'cat', '/sdcard/fpv-viewer.xml')
+    Invoke-AdbText @('-s', $Target, 'shell', 'rm', '/sdcard/fpv-viewer.xml') | Out-Null
+
+    # フォルダカード（クリック可能で、お気に入りの星を持つもの）の最初の要素
+    foreach ($m in [regex]::Matches($xml, 'content-desc="([^"]+)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"')) {
+        $desc = $m.Groups[1].Value
+        if ($desc -match 'お気に入り|検索|高速|先頭|メニュー|再同期') { continue }
+        $x1 = [int]$m.Groups[2].Value; $y1 = [int]$m.Groups[3].Value
+        $x2 = [int]$m.Groups[4].Value; $y2 = [int]$m.Groups[5].Value
+        # 画面幅の 1/4 以上のカードだけを対象にする（アイコン類を除く）
+        if (($x2 - $x1) -lt ($Size.Width / 4)) { continue }
+        return [pscustomobject]@{
+            X = [int](($x1 + $x2) / 2)
+            Y = [int]($y1 + ($y2 - $y1) * 0.55)
+        }
+    }
+    return $null
+}
+
+# グリッドの先頭画像セルの中心を返す
+function Find-FirstImageCell {
+    param([string]$Target)
+
+    Invoke-AdbText @('-s', $Target, 'shell', 'uiautomator', 'dump', '/sdcard/fpv-viewer.xml') | Out-Null
+    $xml = Invoke-AdbText @('-s', $Target, 'shell', 'cat', '/sdcard/fpv-viewer.xml')
+    Invoke-AdbText @('-s', $Target, 'shell', 'rm', '/sdcard/fpv-viewer.xml') | Out-Null
+
+    $m = [regex]::Match(
+        $xml,
+        'content-desc="[^"]+\.(jpg|jpeg|png|webp|gif)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"'
+    )
+    if (-not $m.Success) { return $null }
+    $x1 = [int]$m.Groups[2].Value; $y1 = [int]$m.Groups[3].Value
+    $x2 = [int]$m.Groups[4].Value; $y2 = [int]$m.Groups[5].Value
+    return [pscustomobject]@{ X = [int](($x1 + $x2) / 2); Y = [int](($y1 + $y2) / 2) }
 }
 
 function Measure-Swipe {
@@ -219,6 +330,9 @@ Write-Host ("試行: {0} 回 / スワイプ {1}ms" -f $Runs, $SwipeDurationMs)
 Write-Host ''
 
 Start-App -Target $target
+if (-not (Reset-To-FolderList -Target $target)) {
+    throw 'フォルダ一覧に戻れませんでした。アプリが前面にあるか確認してください。'
+}
 Open-Viewer -Target $target
 $size = Get-ScreenSize -Target $target
 
@@ -264,6 +378,8 @@ $csvPath = Join-Path $dir ("viewer-{0}.csv" -f $timestamp)
     device  = [pscustomobject]@{ model = $model; android = $release; serial = $target }
     folder  = $Folder
     runs    = $Runs
+    # 計測値にはスワイプ操作自体の時間が含まれる。実質の描画遅れは valueMs - swipeDurationMs
+    swipeDurationMs = $SwipeDurationMs
     summary = $summary
     rows    = $rows
 } | ConvertTo-Json -Depth 5 | Set-Content -Path $jsonPath -Encoding UTF8
