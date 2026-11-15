@@ -115,7 +115,18 @@ class AppContainer(
 /** アプリケーション。グローバルな依存を 1 回だけ生成する */
 class FastestPictureViewerApplication : Application(), ImageLoaderFactory {
 
-    lateinit var container: AppContainer
+    /**
+     * 依存の生成に失敗したときに保持するエラー (Issue #88)。
+     *
+     * ここで例外を投げるとプロセスごと落ちて、二度と起動できなくなる。
+     * 失敗しても画像キャッシュは使えるよう、生成を分けて最小限の画面を出す。
+     */
+    @Volatile
+    var startupError: Throwable? = null
+        private set
+
+    /** 依存一式。生成に失敗した場合は null */
+    var container: AppContainer? = null
         private set
 
     /** Coil の ImageLoader。ディスク/メモリキャッシュをアプリ全体で共有する */
@@ -124,8 +135,17 @@ class FastestPictureViewerApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        // 画像キャッシュは DB に依存しないため、先に必ず作る
         imageLoader = buildImageLoader()
-        container = AppContainer(this, imageLoader)
+        container = try {
+            AppContainer(this, imageLoader)
+        } catch (t: Throwable) {
+            // DB 破損などで生成に失敗してもプロセスを落とさない。
+            // 画面側で案内を出し、再起動や復旧を促す
+            startupError = t
+            android.util.Log.e("FPV-Perf", "AppContainer initialization failed", t)
+            null
+        }
     }
 
     override fun newImageLoader(): ImageLoader = imageLoader
