@@ -36,7 +36,11 @@ class FolderReadabilityAssessorTest {
     )
 
     private fun assessor(readable: Set<String>) =
-        FolderReadabilityAssessor(ImageReadableProbe { it in readable })
+        FolderReadabilityAssessor(
+            probe = ImageReadableProbe { it in readable },
+            // テストでは待機しない (Issue #93 で再試行を追加したため)
+            retryDelayMs = 0
+        )
 
     @Test
     fun `画像が無ければ健康とみなす`() = runTest {
@@ -97,10 +101,12 @@ class FolderReadabilityAssessorTest {
     fun `サンプル数は上限を超えない`() = runTest {
         var probes = 0
         val counting = FolderReadabilityAssessor(
-            ImageReadableProbe {
+            probe = ImageReadableProbe {
                 probes++
                 false
-            }
+            },
+            // 再試行の待機は別テストで扱う。ここではサンプル数の上限だけを見る
+            retryDelayMs = 0
         )
         val items = (1..100).map { item("img%03d.jpg".format(it)) }
 
@@ -108,6 +114,55 @@ class FolderReadabilityAssessorTest {
 
         // 代表 1 回 + サンプル 3 回までに抑える (大量フォルダでも遅くしない)
         assertTrue("プローブ回数が多すぎる: $probes", probes <= 4)
+    }
+
+    @Test
+    fun `一時的な失敗は再試行で回復する`() = runTest {
+        // 1 回目だけ失敗し、2 回目に読めるようになるケース (SD の一時的な詰まり)
+        var attempt = 0
+        val flaky = FolderReadabilityAssessor(
+            probe = ImageReadableProbe {
+                attempt++
+                attempt > 1
+            },
+            retryDelayMs = 1,
+            sleeper = { }
+        )
+
+        val result = flaky.assess(listOf(item("a.jpg"), item("b.jpg")))
+
+        assertTrue("再試行で回復していない", result is FolderReadability.Healthy)
+    }
+
+    @Test
+    fun `ボリュームが読めないときは判断しない`() = runTest {
+        // SD を抜いただけの可能性がある。フォルダ消滅と決めつけない (Issue #93)
+        val assessor = FolderReadabilityAssessor(
+            probe = ImageReadableProbe { false },
+            retryDelayMs = 0
+        )
+
+        val result = assessor.assess(
+            listOf(item("a.jpg"), item("b.jpg"), item("c.jpg")),
+            volumeReadable = false
+        )
+
+        assertTrue("保留にすべき", result is FolderReadability.Undetermined)
+    }
+
+    @Test
+    fun `ボリュームが読めれば全滅はフォルダ消滅と判定する`() = runTest {
+        val assessor = FolderReadabilityAssessor(
+            probe = ImageReadableProbe { false },
+            retryDelayMs = 0
+        )
+
+        val result = assessor.assess(
+            listOf(item("a.jpg"), item("b.jpg")),
+            volumeReadable = true
+        )
+
+        assertTrue("フォルダ消滅と判定すべき", result is FolderReadability.FolderGone)
     }
 
     @Test

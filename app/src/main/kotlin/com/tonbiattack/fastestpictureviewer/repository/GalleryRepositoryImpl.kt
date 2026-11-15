@@ -173,7 +173,8 @@ class GalleryRepositoryImpl(
             if (items.isEmpty()) return@withContext 0
 
             val now = nowSeconds()
-            when (val result = FolderReadabilityAssessor(probe).assess(items)) {
+            val volumeReadable = isVolumeReadable(items.first().volumeName)
+            when (val result = FolderReadabilityAssessor(probe).assess(items, volumeReadable)) {
                 FolderReadability.Healthy -> {
                     // 読めるようになっていれば、以前の記録を取り消して一覧へ戻す (自己修復)
                     imageDao.clearUnreadableByFolder(folderKey)
@@ -200,6 +201,13 @@ class GalleryRepositoryImpl(
                 is FolderReadability.FolderGone -> {
                     imageDao.markFolderUnreadable(folderKey, now)
                     result.items.size
+                }
+
+                is FolderReadability.Undetermined -> {
+                    // 判断できないので記録は変えない (Issue #93)。
+                    // 一時的な読み取り失敗で実在フォルダを隠さないため
+                    Log.w("FPV-Perf", "folder readability undetermined: volume unreadable")
+                    0
                 }
             }
         }
@@ -306,14 +314,26 @@ class GalleryRepositoryImpl(
         val assessor = FolderReadabilityAssessor(probe)
         val goneFolders = ArrayList<String>(suspect.size)
         val partial = ArrayList<ImageItem>()
+        var undeterminedFolders = 0
         val now = nowSeconds()
+        // ボリュームの読み取り可否は 1 回だけ確認する (Issue #93)。
+        // フォルダごとに問い合わせると数千回になるため
+        val volumeReadable = mutableMapOf<String, Boolean>()
         for (folderKey in suspect) {
+            val items = imageDao.getImages(folderKey)
+            val readable = items.firstOrNull()?.volumeName?.let { volumeName ->
+                volumeReadable.getOrPut(volumeName) { isVolumeReadable(volumeName) }
+            } ?: true
             // このフォルダの記録は作り直すので、先に消す
             imageDao.clearUnreadableByFolder(folderKey)
-            when (val result = assessor.assess(imageDao.getImages(folderKey))) {
+            when (val result = assessor.assess(items, readable)) {
                 FolderReadability.Healthy -> Unit
                 is FolderReadability.PartiallyUnreadable -> partial += result.items
                 is FolderReadability.FolderGone -> goneFolders += folderKey
+                is FolderReadability.Undetermined -> {
+                    // 判断できないので記録しない (Issue #93)
+                    undeterminedFolders++
+                }
             }
         }
         if (partial.isNotEmpty()) {
@@ -342,6 +362,7 @@ class GalleryRepositoryImpl(
             "FPV-Perf",
             "readability validation: ${targets.size} folders, ${suspect.size} suspect, " +
                 "${goneFolders.size} gone, ${partial.size} partial, " +
+                "undetermined=$undeterminedFolders, " +
                 "${SystemClock.elapsedRealtime() - startedAtMs}ms"
         )
         goneFolders.size
