@@ -15,6 +15,7 @@ import com.tonbiattack.fastestpictureviewer.data.LastViewedStore
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
 import com.tonbiattack.fastestpictureviewer.data.SharedPreferencesLastViewedStore
 import com.tonbiattack.fastestpictureviewer.data.ViewSettingsBackupAccess
+import com.tonbiattack.fastestpictureviewer.perf.StartupTrace
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepositoryImpl
 import com.tonbiattack.fastestpictureviewer.ui.favorites.FavoriteImagesViewModel
@@ -45,13 +46,18 @@ class AppContainer(
     private val imageLoader: ImageLoader
 ) {
 
-    val database: AppDatabase = AppDatabase.build(context)
+    val database: AppDatabase = AppDatabase.build(context).also {
+        // 起動区間の計測 (Issue #99)。DB を開き終えた時点
+        StartupTrace.mark("db_open")
+    }
     val repository: GalleryRepository =
         GalleryRepositoryImpl(
             db = database,
             scanner = MediaStoreScanner(context),
             readableProbe = ContentResolverReadableProbe(context)
-        )
+        ).also {
+        StartupTrace.mark("repository_ready")
+    }
 
     /** フォルダ一覧の列数など、画面設定の永続化 */
     val folderViewSettings: FolderViewSettings = SharedPreferencesFolderViewSettings(context)
@@ -135,9 +141,12 @@ class FastestPictureViewerApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        StartupTrace.mark("app_oncreate_start")
         // 画像キャッシュは DB に依存しないため、先に必ず作る
         imageLoader = buildImageLoader()
         initializeContainer()
+        StartupTrace.mark("app_oncreate_end")
+        StartupTrace.span("app_oncreate_start", "app_oncreate_end")
     }
 
     /**

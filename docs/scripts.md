@@ -65,6 +65,20 @@ python -X utf8 scripts\ui_find.py captures\u.xml "タグ"
 実機が必要な connectedDebugAndroidTest は CI では実行しない。
 署名鍵や個人情報は使わず、debug ビルドのみを対象にしている。
 
+## 性能計測（benchmark.ps1）
+
+起動・復帰・フォルダ遷移を繰り返し測り、P50/P95 を JSON/CSV に残す。
+
+| 目的 | コマンド |
+| --- | --- |
+| 3シナリオを 10 回ずつ | `benchmark.ps1` |
+| コールド起動だけ 20 回 | `benchmark.ps1 -Scenario cold -Runs 20` |
+| 前回結果と比較 | `benchmark.ps1 -Baseline captures\perf\<timestamp>.json` |
+
+- 実機の計測は対応端末が接続された環境でのみ実行する（CI では動かさない）
+- 端末アニメーションを一時的に 0 にし、終了時に元へ戻す
+- 詳細と結果の読み方は [性能計測](benchmark.md) を参照
+
 ## APK の導入・更新（device.ps1）
 
 | 目的 | コマンド |

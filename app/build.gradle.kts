@@ -68,11 +68,25 @@ android {
     }
 
     buildTypes {
+        debug {
+            // 計測は debug で既定有効。性能比較はこのビルドで行う (Issue #99)
+            buildConfigField(
+                "boolean",
+                "PERF_TRACE",
+                ((findProperty("fpv.perfTrace") as String?)?.toBoolean() ?: true).toString()
+            )
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
+            )
+            // リリースは既定で無効。性能比較用に明示指定したときだけ有効にする
+            buildConfigField(
+                "boolean",
+                "PERF_TRACE",
+                ((findProperty("fpv.perfTrace") as String?)?.toBoolean() ?: false).toString()
             )
             // 署名情報が揃っているときだけリリース署名を付ける
             if (hasReleaseSigning) {

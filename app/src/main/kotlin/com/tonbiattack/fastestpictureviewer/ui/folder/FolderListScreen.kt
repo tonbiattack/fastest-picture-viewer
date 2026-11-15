@@ -58,6 +58,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -76,6 +77,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.tonbiattack.fastestpictureviewer.R
@@ -83,6 +87,7 @@ import com.tonbiattack.fastestpictureviewer.core.image.folderThumbnailRequest
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
 import com.tonbiattack.fastestpictureviewer.data.TagWithCount
+import com.tonbiattack.fastestpictureviewer.perf.StartupTrace
 import com.tonbiattack.fastestpictureviewer.repository.MediaRescanHint
 import com.tonbiattack.fastestpictureviewer.ui.components.FastScroller
 import com.tonbiattack.fastestpictureviewer.ui.components.ScrollToTopButton
@@ -116,6 +121,40 @@ fun FolderListScreen(
     modifier: Modifier = Modifier
 ) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
+    // 一覧の初回描画が終わった時点を記録する (Issue #99)。
+    // 「操作可能になった」の定義は、初回フレームが画面に出た時点とする
+    LaunchedEffect(state.isLoadingFirstFrame) {
+        if (!state.isLoadingFirstFrame) {
+            StartupTrace.mark("folder_list_drawn")
+            StartupTrace.span("app_oncreate_start", "folder_list_drawn")
+        }
+    }
+
+    // アプリ復帰 (バックグラウンド→前面) の計測 (Issue #99)。
+    // 復帰はプロセスが生きているため、起動の mark は打たれない。
+    // ON_RESUME の時点を基準に、その後の描画までの時間を測る
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var resumeCount by remember { mutableIntStateOf(0) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    StartupTrace.mark("resume_start")
+                    resumeCount++
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    // 復帰後の再コンポーズで 1 度だけ記録する
+    LaunchedEffect(resumeCount) {
+        if (resumeCount > 0 && !state.isLoadingFirstFrame) {
+            StartupTrace.mark("folder_list_resumed")
+            StartupTrace.span("resume_start", "folder_list_resumed")
+        }
+    }
     var showClearCacheDialog by remember { mutableStateOf(false) }
     var showDisplaySettings by remember { mutableStateOf(false) }
     var showTagFilter by remember { mutableStateOf(false) }

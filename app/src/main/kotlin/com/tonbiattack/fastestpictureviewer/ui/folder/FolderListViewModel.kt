@@ -12,6 +12,7 @@ import com.tonbiattack.fastestpictureviewer.data.LastViewedStore
 import com.tonbiattack.fastestpictureviewer.data.RecentFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.RepresentativeImageRow
 import com.tonbiattack.fastestpictureviewer.data.TagWithCount
+import com.tonbiattack.fastestpictureviewer.perf.StartupTrace
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import com.tonbiattack.fastestpictureviewer.repository.MediaRescanHint
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -354,6 +355,10 @@ class FolderListViewModel(
                         }
                     }
 
+                    // 最初の一覧データが用意できた時点 (Issue #99)。
+                    // ここから Compose の初回描画が始まる
+                    StartupTrace.mark("folder_list_ready")
+
                     FolderListUiState(
                         isLoadingFirstFrame = false,
                         folders = visibleFolders,
@@ -385,8 +390,7 @@ class FolderListViewModel(
                         showResumeCard = context.showResumeCard,
                         visibleFolderKeys = visibleFolders.map { it.folderKey },
                         staleImageCount = staleCount,
-                        suggestRescan = !dismissed && MediaRescanHint.shouldSuggest(
-                            wasFullScan = status.wasFullScan,
+                        suggestRescan = !dismissed && MediaRescanHint.shouldSuggest(                            wasFullScan = status.wasFullScan,
                             addedCount = status.addedCount,
                             removedCount = status.removedCount,
                             failedVolumeCount = status.failedVolumeCount,
