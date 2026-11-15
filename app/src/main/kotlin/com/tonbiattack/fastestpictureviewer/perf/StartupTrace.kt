@@ -79,6 +79,28 @@ object StartupTrace {
         log(message)
     }
 
+    /**
+     * 個別処理の所要時間を記録する (Issue #98)。
+     *
+     * Room のクエリのように「どこで時間を使ったか」を名前付きで出したいときに使う。
+     * 出力例: `task=folder_summaries ms=254`
+     */
+    fun task(name: String, millis: Long) {
+        if (!BuildConfig.PERF_TRACE) return
+        log("task=$name ms=$millis")
+    }
+
+    /** [block] の所要時間を計測して [task] に渡す。計測が無効ならそのまま実行する */
+    inline fun <T> measureTask(name: String, block: () -> T): T {
+        if (!BuildConfig.PERF_TRACE) return block()
+        val started = SystemClock.elapsedRealtime()
+        try {
+            return block()
+        } finally {
+            task(name, SystemClock.elapsedRealtime() - started)
+        }
+    }
+
     private fun readElapsed(): Long =
         runCatching { SystemClock.elapsedRealtime() }.getOrElse { 0L }
 

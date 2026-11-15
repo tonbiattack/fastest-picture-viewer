@@ -78,7 +78,9 @@ fun AppNavHost(
     onRequestPermission: () -> Unit,
     onManualRefresh: () -> Unit,
     modifier: Modifier = Modifier,
-    navController: NavHostController = rememberNavController()
+    navController: NavHostController = rememberNavController(),
+    /** フォルダ一覧の初回フレームが描画されたことを通知する (Issue #98) */
+    onFirstFrameDrawn: () -> Unit = {}
 ) {
     val factory = container.viewModelFactory
     val scope = rememberCoroutineScope()
@@ -148,7 +150,10 @@ fun AppNavHost(
                         set(KEY_RESUME_INDEX, index)
                     }
                     navController.navigate(Routes.imageGrid(folder.folderKey))
-                }
+                },
+                // 初回フレームが出るまで重い同期を始めない (Issue #98)。
+                // 同期は MediaStore の走査でディスクを占有し、一覧の初回クエリを待たせる
+                onFirstFrameDrawn = onFirstFrameDrawn
             )
         }
 

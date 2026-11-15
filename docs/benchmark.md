@@ -128,6 +128,69 @@ CI では `BenchmarkStatsTest` が検証する。
 **OPPO Reno13 A（35万枚）でのベースラインは未取得。** 実機テストを行わない方針のため、
 必要になった時点で `-Runs 20` で実行する。
 
+### 実測（OPPO Reno13 A / MediaStore 353,767 枚 / 2,667 フォルダ）
+
+Issue #98 で実機計測を行った。条件は次のとおり。
+
+- 端末: OPPO Reno13 A（CPH2699 / Android 16）、写真の閲覧権限を許可済み
+- `am force-stop` → `am start` を 20 回。アニメーションスケールは 0
+- 指標: `app_oncreate_start`（プロセス内の最初の計測点）から `folder_list_drawn`
+  （フォルダ一覧の初回フレーム）まで
+
+| 指標 | 改善前 | 改善後 |
+| --- | --- | --- |
+| P50 | 4,582ms | **3,067ms**（-33%） |
+| P95 | 6,466ms | **3,272ms**（-49%） |
+| 最短 / 最長 | 3,453 / 9,981ms | 2,637 / 4,248ms |
+
+**目標の 1,000ms は未達。** ただし P95 がほぼ半減し、ばらつきも縮んだ。
+
+### 起動の内訳（改善後・1 回の実測）
+
+| 区間 | 経過 | 差分 |
+| --- | --- | --- |
+| `app_oncreate_start` | 0ms | — |
+| `db_open` | 96ms | DB を開くまで 96ms |
+| `app_oncreate_end` | 124ms | Application 初期化 124ms |
+| `set_content` | 461ms | Activity から Compose 開始まで 461ms |
+| `folder_list_vm_created` | 597ms | ViewModel 生成まで |
+| `folder_summaries_start` | 950ms | 集計クエリの実行開始 |
+| `folder_summaries_emitted` | 4,682ms | **集計クエリに約 3.7 秒** |
+| `folder_list_drawn` | 5,214ms | 初回フレーム |
+
+**ボトルネックは 1 点。** 353,767 行をフォルダ単位に集計する 1 本の SQL が
+起動時間の大半を占める。それ以外（Application・Compose・ViewModel 生成）は
+合計 600ms 未満で、すでに十分速い。
+
+### 何を変えたか
+
+| 変更 | 効果 |
+| --- | --- |
+| 除外フォルダ監視に `distinctUntilChanged` を追加 | 集計クエリの**二重実行**を解消。`map { Unit }` + `onStart` で Unit が 2 回流れ、`flatMapLatest` が 35 万行の集計を 2 回走らせていた（実機で約 2 秒の悪化） |
+| 初回フレーム描画まで自動同期を遅らせる | MediaStore の全走査がディスクを占有し、集計クエリを待たせていた。描画後に回して P50 が約 1.5 秒短縮 |
+
+### 試して効果が無かったもの（記録）
+
+| 案 | 結果 |
+| --- | --- |
+| 集計用の covering index（`folderKey, dateModifiedSec, volumeName, relativePath`） | PC 実測で 208ms → 335ms と**悪化**。索引が大きくなりページ読み取りが増える |
+| `PRAGMA mmap_size = 256MB` | PC では 358ms → 197ms と改善したが、**実機では 2,809〜5,237ms で変化なし**。295MB の DB が端末メモリに収まらない |
+| `PRAGMA cache_size` を増やす | PC 実測で 241ms → 252〜320ms。効果なし |
+| 集計 SQL を LEFT JOIN に書き換え | 同等（259〜317ms）。改善なし |
+| 集計 SQL の GROUP BY に volumeName/relativePath を追加 | 1.7〜2.7 倍に悪化 |
+
+### 残る課題
+
+集計クエリ 1 本が 3.7 秒かかる問題は未解決。1,000ms を目指すには、
+起動時にこのクエリを待たない設計が必要になる。候補は次のとおり。
+
+1. **集計結果をディスクにキャッシュする。** 同期で件数が変わったときだけ更新し、
+   起動時はキャッシュを即表示する（stale-while-revalidate の方針と一致）
+2. フォルダ集計を別テーブルに持つ（同期時に更新）。読み出しは行数分の単純 SELECT になる
+3. 集計クエリ自体の分割（フォルダ数を数える軽いクエリ → 残りを後追い）
+
+いずれも DB スキーマか保存形式の変更を伴うため、別 Issue で扱う。
+
 ## 8. ビューアのスワイプ応答（Issue #101）
 
 スワイプ時に次画像が引っかかる問題について、**「指を置いてドラッグが始まってから、

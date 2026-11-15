@@ -114,15 +114,20 @@ fun FolderListScreen(
     onSetFolderFavorite: (FolderUiModel, Boolean) -> Unit,
     onOpenFolder: (FolderUiModel) -> Unit,
     onOpenResume: (FolderUiModel, String, Int) -> Unit,
+    /** 一覧の初回フレームが描画されたことを通知する (Issue #98: 同期の開始に使う) */
+    onFirstFrameDrawn: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
     // 一覧の初回描画が終わった時点を記録する (Issue #99)。
-    // 「操作可能になった」の定義は、初回フレームが画面に出た時点とする
+    // 「操作可能になった」の定義は、初回フレームが画面に出た時点とする。
+    // あわせて、起動直後の重い同期をこの時点まで遅らせる (Issue #98)。
+    // 同期は MediaStore の全件走査でディスクを占有し、一覧の初回クエリを待たせるため
     LaunchedEffect(state.isLoadingFirstFrame) {
         if (!state.isLoadingFirstFrame) {
             StartupTrace.mark("folder_list_drawn")
             StartupTrace.span("app_oncreate_start", "folder_list_drawn")
+            onFirstFrameDrawn()
         }
     }
 

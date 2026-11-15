@@ -144,9 +144,11 @@ class FastestPictureViewerApplication : Application(), ImageLoaderFactory {
         StartupTrace.mark("app_oncreate_start")
         // 画像キャッシュは DB に依存しないため、先に必ず作る
         imageLoader = buildImageLoader()
+        StartupTrace.mark("image_loader_ready")
         initializeContainer()
         StartupTrace.mark("app_oncreate_end")
         StartupTrace.span("app_oncreate_start", "app_oncreate_end")
+        StartupTrace.span("app_oncreate_start", "image_loader_ready")
     }
 
     /**
