@@ -22,8 +22,6 @@ import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
@@ -38,7 +36,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,6 +45,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -60,10 +58,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -71,6 +67,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.tonbiattack.fastestpictureviewer.R
 import com.tonbiattack.fastestpictureviewer.core.image.toImageRequest
+import com.tonbiattack.fastestpictureviewer.ui.components.CompactSearchBar
 import com.tonbiattack.fastestpictureviewer.ui.components.FastScroller
 import kotlinx.coroutines.flow.distinctUntilChanged
 import android.content.res.Configuration
@@ -100,6 +97,8 @@ fun ImageGridScreen(
     var showDisplaySettings by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var searchActive by remember { mutableStateOf(state.isSearching) }
+    // 検索バーを開いた回数。増えたときだけフォーカスとキーボードを出す (Issue #100)
+    var searchFocusRequest by remember { mutableIntStateOf(0) }
     val scrollAnchor = remember { GridScrollAnchor() }
     // ピンチ操作中の一時的な列数。null なら保存済みの列数を使う (Issue #45)
     var pinchColumns by remember { mutableStateOf<Int?>(null) }
@@ -156,10 +155,16 @@ fun ImageGridScreen(
                                     viewModel.clearSearch()
                                 } else {
                                     searchActive = true
+                                    searchFocusRequest++
                                 }
                             }
                         ) {
-                            Icon(Icons.Filled.Search, contentDescription = "画像を検索")
+                            // 検索中は閉じるアイコンにして、同じ位置で解除できることを示す (Issue #100)
+                            if (searchActive || state.isSearching) {
+                                Icon(Icons.Filled.Close, contentDescription = "検索を閉じる")
+                            } else {
+                                Icon(Icons.Filled.Search, contentDescription = "画像を検索")
+                            }
                         }
                         IconButton(onClick = viewModel::toggleFavoritesOnly) {
                             Icon(
@@ -200,10 +205,14 @@ fun ImageGridScreen(
                     }
                 )
                 if (searchActive || state.isSearching) {
-                    ImageSearchField(
+                    // 1 行のコンパクトな検索バー。一覧の表示領域を削らない (Issue #100)
+                    CompactSearchBar(
                         query = state.searchQuery,
                         onQueryChange = viewModel::onSearchQueryChange,
-                        onClear = viewModel::clearSearch
+                        onClear = viewModel::clearSearch,
+                        placeholder = "ファイル名で検索",
+                        focusRequestKey = searchFocusRequest,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
                 }
             }
@@ -425,34 +434,6 @@ fun ImageGridScreen(
             }
         }
     }
-}
-
-@Composable
-private fun ImageSearchField(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onClear: () -> Unit
-) {
-    val focusManager = LocalFocusManager.current
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        placeholder = { Text("ファイル名で検索") },
-        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-        trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = onClear) {
-                    Icon(Icons.Filled.Close, contentDescription = "検索をクリア")
-                }
-            }
-        },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() })
-    )
 }
 
 @Composable

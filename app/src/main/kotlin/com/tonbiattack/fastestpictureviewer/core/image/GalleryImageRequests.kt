@@ -2,6 +2,8 @@ package com.tonbiattack.fastestpictureviewer.core.image
 
 import android.content.Context
 import coil.request.ImageRequest
+import coil.size.Precision
+import coil.size.Scale
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
 
 /**
@@ -54,6 +56,34 @@ fun ImageItem.toImageRequest(
     widthPx = widthPx,
     heightPx = heightPx
 )
+
+/**
+ * ビューアで表示する 1 枚分のリクエスト (Issue #101)。
+ *
+ * 先読みと表示で**同じ設定**を使うことが重要。サイズや精度が違うと、先読みで
+ * メモリキャッシュに載っていてもサイズ不一致で再デコードになり、スワイプが引っかかる。
+ *
+ * - サイズを表示領域に固定し、その場でレイアウトから解決させない
+ * - 精度は INEXACT。画面に合わせた縮小であり、原寸一致は要求しない
+ * - クロスフェードは切る。スワイプ直後は無い画像から出すため、フェードの待ちが
+ *   そのまま「もたつき」に見える
+ */
+fun ImageItem.toViewerImageRequest(
+    context: Context,
+    widthPx: Int,
+    heightPx: Int
+): ImageRequest {
+    val cacheKey = GalleryImageCacheKeys.forItem(this)
+    return ImageRequest.Builder(context)
+        .data(uri)
+        .memoryCacheKey(cacheKey)
+        .diskCacheKey(cacheKey)
+        .size(widthPx, heightPx)
+        .scale(Scale.FIT)
+        .precision(Precision.INEXACT)
+        .crossfade(false)
+        .build()
+}
 
 /** フォルダ代表サムネイルのリクエスト。代表画像の更新日時とサイズをキャッシュキーに含める */
 fun folderThumbnailRequest(

@@ -128,6 +128,71 @@ CI では `BenchmarkStatsTest` が検証する。
 **OPPO Reno13 A（35万枚）でのベースラインは未取得。** 実機テストを行わない方針のため、
 必要になった時点で `-Runs 20` で実行する。
 
+## 8. ビューアのスワイプ応答（Issue #101）
+
+スワイプ時に次画像が引っかかる問題について、**「指を置いてドラッグが始まってから、
+移動先のページが描かれるまで」** を測る。スナップアニメーションの完了は含めない
+（含めるとデコードの差がアニメーション時間に埋もれるため）。
+
+```powershell
+# 先頭のフォルダを開いて 12 回スワイプ
+powershell -ExecutionPolicy Bypass -File scripts\viewer-benchmark.ps1 -Runs 12
+
+# 端末とフォルダを指定
+powershell -ExecutionPolicy Bypass -File scripts\viewer-benchmark.ps1 -Serial <serial> -Folder PerfTest -Runs 20
+
+# 改善前後を比較
+powershell -ExecutionPolicy Bypass -File scripts\viewer-benchmark.ps1 -Baseline captures\perf\viewer-xxx.json
+```
+
+出力は `captures\perf\viewer-<timestamp>.json` と `.csv`。
+
+### アプリ側が出すログ
+
+`benchmark.ps1` と同じ `FPV-Startup` タグ・同じ書式で出す（抽出処理を共通化するため）。
+
+```
+mark=viewer_swipe_start at=16944
+mark=viewer_page_drawn at=17088
+span=viewer_swipe_start>viewer_page_drawn ms=145
+viewer_image_loaded cached=true
+```
+
+- `span=...` … スワイプ開始からページ確定まで。連続スワイプでは最初の 1 回だけ記録する
+- `cached=true` … 表示する画像がメモリキャッシュにあった（＝先読みが効いた）。
+  キー（`URI@更新日時@サイズ`）を直接引いて判定する。Coil は構成済みページで
+  `onSuccess` を再通知しないため、表示側のコールバックでは判定できない
+
+### 何を変えたか
+
+| 変更 | 理由 |
+| --- | --- |
+| 前後 2 枚の先読み（開いた直後は 1 枚） | スワイプ開始後に初めてデコードが走る状態をなくす |
+| 先読みと表示で同じリクエスト設定を共有 | サイズ・精度が違うとメモリキャッシュが再利用されず、毎回再デコードになる |
+| デコードサイズを画面実寸に固定し、精度を `INEXACT` に | レイアウトからのサイズ解決待ちと、原寸一致要求によるキャッシュ破棄を避ける |
+| クロスフェードを切る | 前の画像が無い状態からのフェード待ちが「もたつき」に見えるため |
+| `beyondViewportPageCount = 1` | スワイプ開始時点で隣のページを構成済みにする |
+| ページ変更時に未完了の先読みをキャンセル | 素早い連続スワイプでデコード待ちを溜めない |
+
+`beyondViewportPageCount` により、同時に保持するページは最大 3 枚（前・現在・次）に
+制限される。全件先読みはしないため、メモリ使用量は画像枚数に比例しない。
+
+### 計測結果（エミュレータ・参考値）
+
+**この数値は実機の性能を代替しない。** ソフトウェア描画のエミュレータで、
+3,000×2,000 の JPEG 40 枚を入れたフォルダを 110ms でスワイプした結果。
+
+| 指標 | 改善前 | 改善後 |
+| --- | --- | --- |
+| 先読みヒット（`cached=true`） | 0 / 12 | 12 / 12 |
+| フレーム時間 P50 | 18〜22ms | 17ms |
+| フレーム時間 P95 | 30〜34ms | 24〜31ms |
+
+`cached=true` が全件になることで、スワイプ時にデコードが走っていないことは確認できた。
+フレーム時間の差は端末の負荷で振れるため、**OPPO Reno13 A（35万枚）での実測が未実施**。
+実機が使える状態になった時点で `-Runs 20` を実行し、この表を置き換える。
+
+
 ## 8. 起動時間の内訳（Issue #98 の調査結果）
 
 エミュレータ（Android 16 / API 36 / 画像 201 枚 / 21 フォルダ / ハードウェア GPU）で
