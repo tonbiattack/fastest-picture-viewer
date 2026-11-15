@@ -1,11 +1,24 @@
 package com.tonbiattack.fastestpictureviewer.data
 
 import android.content.Context
+import android.util.Log
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import java.io.File
+
+/**
+ * DB を開けなかったときの復旧結果 (Issue #88)。
+ * UI はこれを見て「データを作り直した」ことを案内する。
+ */
+data class DatabaseRecoveryResult(
+    /** 復旧が必要と判断した理由 */
+    val reason: DatabaseRecovery.Reason,
+    /** 退避した DB のパス。退避できなかった場合は null */
+    val quarantinedPath: String?
+)
 
 /**
  * アプリの(Room)データベース。
@@ -55,9 +68,50 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         const val DATABASE_NAME = "fastest-picture-viewer.db"
 
-        /** 通常の DB を構築する */
+        /** 復旧時に退避する DB の接尾辞 (Issue #88) */
+        private const val QUARANTINE_SUFFIX = ".corrupted"
+
+        /** 直近の復旧結果。UI で案内するために保持する (Issue #88) */
+        @Volatile
+        var lastRecovery: DatabaseRecoveryResult? = null
+            private set
+
+        /**
+         * 通常の DB を構築する (Issue #88)。
+         *
+         * 万一 DB を開けなかった場合、壊れたファイルを退避して作り直す。
+         * これをしないと起動時にクラッシュし、二度とアプリを使えなくなる。
+         * 写真そのものは削除せず、再スキャンで一覧が戻る。
+         */
         fun build(context: Context): AppDatabase =
-            Room.databaseBuilder(
+            try {
+                open(context)
+            } catch (t: Throwable) {
+                val reason = DatabaseRecovery.classify(
+                    message = t.message,
+                    isSqliteException = isSqlite(t)
+                )
+                if (!DatabaseRecovery.shouldRecreate(reason)) {
+                    // 権限・容量など、作り直しても解決しない問題はそのまま伝える
+                    throw t
+                }
+                // 壊れた DB を退避してから作り直す
+                val quarantined = quarantine(context)
+                lastRecovery = DatabaseRecoveryResult(
+                    reason = reason,
+                    quarantinedPath = quarantined?.absolutePath
+                )
+                Log.w(
+                    "FPV-Perf",
+                    "database recovery: reason=$reason quarantined=${quarantined?.name}",
+                    t
+                )
+                open(context)
+            }
+
+        /** 実際に Room を開く。壊れた DB を検出するため、開いた直後に疎通確認する */
+        private fun open(context: Context): AppDatabase {
+            val db = Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 DATABASE_NAME
@@ -71,6 +125,65 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_7_8,
                 MIGRATION_8_9
             ).build()
+            // Room は遅延初期化のため、ここで一度触らないと破損が分からない。
+            // 起動時に検出したいので、軽いクエリで疎通を確認する (Issue #88)
+            try {
+                db.openHelper.writableDatabase
+            } catch (t: Throwable) {
+                runCatching { db.close() }
+                throw t
+            }
+            return db
+        }
+
+        /**
+         * テスト用: 退避処理だけを呼ぶ (Issue #88)。
+         * 破損の検出は Robolectric で再現できないため、退避の副作用だけを検証する。
+         */
+        internal fun quarantineForTest(context: Context): File? = quarantine(context)
+
+        /** SQLite 由来の例外か (android.database.sqlite 系) */
+        private fun isSqlite(t: Throwable): Boolean =
+            generateSequence(t as Throwable?) { it.cause }
+                .any { it.javaClass.name.startsWith("android.database.sqlite") }
+
+        /**
+         * 壊れた DB と付随ファイル (WAL / SHM) を退避する。
+         * 退避しておけば、必要なときに中身を調べられる。失敗しても起動を優先する。
+         *
+         * rename が使えない環境 (別マウント等) もあるため、失敗時はコピーで代替する。
+         */
+        private fun quarantine(context: Context): File? = try {
+            val dir = context.getDatabasePath(DATABASE_NAME).parentFile ?: return null
+            val base = File(dir, DATABASE_NAME)
+            val target = File(dir, "$DATABASE_NAME$QUARANTINE_SUFFIX")
+            // 以前の退避ファイルは上書きする (無限に増やさない)
+            if (target.exists()) target.delete()
+            if (base.exists()) {
+                if (!base.renameTo(target)) {
+                    base.copyTo(target, overwrite = true)
+                    base.delete()
+                }
+            }
+            // -wal / -shm も一緒に退避する。残すと作り直した DB に適用されて壊れる
+            listOf("-wal", "-shm").forEach { suffix ->
+                val side = File(dir, "$DATABASE_NAME$suffix")
+                if (side.exists()) {
+                    val sideTarget = File(dir, "$DATABASE_NAME$QUARANTINE_SUFFIX$suffix")
+                    if (!side.renameTo(sideTarget)) {
+                        runCatching {
+                            side.copyTo(sideTarget, overwrite = true)
+                            side.delete()
+                        }
+                    }
+                }
+            }
+            if (target.exists()) target else null
+        } catch (t: Exception) {
+            // 退避に失敗しても、DB を消して作り直す方を優先する
+            Log.w("FPV-Perf", "quarantine failed", t)
+            null
+        }
 
         /** テスト用のメモリ DB を構築する */
         fun buildInMemory(context: Context): AppDatabase =
