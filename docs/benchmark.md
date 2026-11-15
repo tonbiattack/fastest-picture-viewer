@@ -127,3 +127,41 @@ CI では `BenchmarkStatsTest` が検証する。
 
 **OPPO Reno13 A（35万枚）でのベースラインは未取得。** 実機テストを行わない方針のため、
 必要になった時点で `-Runs 20` で実行する。
+
+## 8. 起動時間の内訳（Issue #98 の調査結果）
+
+エミュレータ（Android 16 / API 36 / 画像 201 枚 / 21 フォルダ / ハードウェア GPU）で
+区間を計測した結果。数値は 1 回の実測例。
+
+| 区間 | 時間 | 割合 |
+| --- | --- | --- |
+| `app_oncreate_start` → `app_oncreate_end`（DB open 含む） | 101ms | 6% |
+| `before_set_content` → `set_content`（Compose 初期化） | 238ms | 13% |
+| `set_content` → `folder_list_vm_created` | 95ms | 5% |
+| `vm_created` → `data_source_combined`（Room 初回クエリ） | **486ms** | **27%** |
+| `data_source_combined` → `folder_list_ready` | 7ms | 0.4% |
+| `folder_list_ready` → `folder_list_drawn`（実描画） | 約 200ms | 11% |
+
+### 分かったこと
+
+- **Room の初回クエリ待ちが最大**（486ms）。5 つの Flow（フォルダ集計・代表サムネイル・
+  お気に入り・最近閲覧・タグ）が揃うまで `combine` が emit しないため、
+  一覧表示がその分待たされる
+- SQL 自体は軽い。取得した DB で計測すると、フォルダ集計・代表サムネイルとも **0.1ms**（201 行）
+- クエリプランも良好。フォルダ集計は `index_images_folderKey_dateModifiedSec` を使い、
+  相関サブクエリはインデックスで解決している
+- `Skipped 36 frames` は同期処理ではなく、21 フォルダの初回合成中のもの
+
+### 計測時の注意（重要な罠）
+
+**エミュレータの GPU 設定で結果が 2 倍以上変わる。**
+
+| GPU 設定 | コールド起動 P50（201 枚） |
+| --- | --- |
+| `-gpu swiftshader_indirect`（ソフトウェア） | 3588ms |
+| `-gpu host`（ハードウェア） | 941ms |
+
+`setContent` の初期化だけで 1048ms 対 238ms の差が出た。
+比較するときは GPU 設定を固定し、レポートの `device` と合わせて記録すること。
+
+また `Process.getStartElapsedRealtime` はこの環境で 0 を返すため使っていない。

@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaPermissions
 import com.tonbiattack.fastestpictureviewer.data.DatabaseError
+import com.tonbiattack.fastestpictureviewer.perf.StartupTrace
 import com.tonbiattack.fastestpictureviewer.ui.AppNavHost
 import com.tonbiattack.fastestpictureviewer.ui.theme.FastestPictureViewerTheme
 
@@ -58,6 +59,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        StartupTrace.mark("activity_oncreate_start")
         val app = application as FastestPictureViewerApplication
 
         // 依存の生成に失敗していたら、復旧の案内だけを出す (Issue #88)
@@ -80,12 +82,17 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        StartupTrace.mark("before_set_content")
         setContent {
+            StartupTrace.mark("set_content")
             FastestPictureViewerTheme {
                 // アクセスレベルは復帰 (ON_RESUME) のたびに再判定する
                 var accessLevel by remember { mutableStateOf(MediaPermissions.accessLevel(this)) }
                 // 依存生成に成功していることは上で確認済み
                 val container = app.container!!
+                // 計測: setContent から最初のコンポーズ本体まで (Issue #99)
+                StartupTrace.mark("compose_first_pass")
+                StartupTrace.span("set_content", "compose_first_pass")
 
                 val launcher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestMultiplePermissions()
@@ -96,6 +103,7 @@ class MainActivity : ComponentActivity() {
 
                 // 権限が変わったら自動同期を開始する (同期は UI とは非同期)
                 LaunchedEffect(accessLevel) {
+                    StartupTrace.mark("sync_effect_start")
                     appViewModel.onAccessLevelChanged(accessLevel)
                 }
 

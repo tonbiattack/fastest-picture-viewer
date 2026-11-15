@@ -231,6 +231,8 @@ class FolderListViewModel(
         repository.observeRecentFolders().onStart { emit(emptyList()) },
         repository.observeFolderTagNames().onStart { emit(emptyList()) }
     ) { summaries, representatives: List<RepresentativeImageRow>, favorites: List<FavoriteFolderEntity>, recent: List<RecentFolderEntity>, tagRows: List<FolderTagNameRow> ->
+        // 起動時に 5 つの Room クエリが揃った時点 (Issue #98)
+        StartupTrace.mark("data_source_combined")
         FolderDataSource(
             summaries = summaries,
             representatives = representatives,
@@ -267,6 +269,7 @@ class FolderListViewModel(
     private val rescanHintDismissed = MutableStateFlow(false)
 
     init {
+        StartupTrace.mark("vm_init_start")
         // 並び順が変わるたびに、その並び順の保存位置を読み直す
         viewModelScope.launch {
             // StateFlow は同一値の再発行をしないため、そのまま購読する
@@ -274,6 +277,7 @@ class FolderListViewModel(
         }
         // 実体が見つからない画像の件数を初回に読み込む (Issue #80)
         refreshStaleCount()
+        StartupTrace.mark("vm_init_end")
     }
 
     /**

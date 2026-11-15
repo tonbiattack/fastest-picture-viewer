@@ -17,6 +17,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.tonbiattack.fastestpictureviewer.AppContainer
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
+import com.tonbiattack.fastestpictureviewer.perf.StartupTrace
 import com.tonbiattack.fastestpictureviewer.ui.backup.BackupScreen
 import com.tonbiattack.fastestpictureviewer.ui.backup.BackupViewModel
 import com.tonbiattack.fastestpictureviewer.ui.favorites.FavoriteImagesScreen
@@ -89,7 +90,9 @@ fun AppNavHost(
     ) {
         composable(Routes.FOLDER_LIST) {
             val viewModel: FolderListViewModel = viewModel(factory = factory)
+            StartupTrace.mark("folder_list_vm_created")
             val listState = viewModel.uiState.collectAsStateWithLifecycle().value
+            StartupTrace.mark("folder_list_state_collected")
             // ビューアから前後フォルダへ移動できるよう、表示中の並びを共有する (Issue #57)
             LaunchedEffect(listState.visibleFolderKeys) {
                 container.folderSequenceStore.update(listState.visibleFolderKeys)
