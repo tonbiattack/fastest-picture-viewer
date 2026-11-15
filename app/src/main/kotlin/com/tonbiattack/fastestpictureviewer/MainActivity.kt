@@ -32,7 +32,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaPermissions
-import com.tonbiattack.fastestpictureviewer.data.DatabaseRecovery
 import com.tonbiattack.fastestpictureviewer.ui.AppNavHost
 import com.tonbiattack.fastestpictureviewer.ui.theme.FastestPictureViewerTheme
 
@@ -64,7 +63,7 @@ class MainActivity : ComponentActivity() {
         if (failure != null) {
             setContent {
                 FastestPictureViewerTheme {
-                    StartupFailureScreen(error = failure)
+                    StartupFailureScreen()
                 }
             }
             return
@@ -155,14 +154,10 @@ class MainActivity : ComponentActivity() {
 /**
  * 依存の生成に失敗したときの案内 (Issue #88)。
  *
- * クラッシュさせずに理由と対処を示す。写真そのものは消えていないことを明示する。
+ * 初期化時の失敗について、未確認の復旧結果を表示しない。
  */
 @Composable
-private fun StartupFailureScreen(error: Throwable) {
-    val reason = DatabaseRecovery.classify(
-        message = error.message,
-        isSqliteException = error.javaClass.name.startsWith("android.database.sqlite")
-    )
+private fun StartupFailureScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -175,24 +170,9 @@ private fun StartupFailureScreen(error: Throwable) {
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            text = if (DatabaseRecovery.shouldRecreate(reason)) {
-                DatabaseRecovery.MESSAGE
-            } else {
-                "ストレージの空き容量や権限を確認して、アプリを再起動してください。"
-            },
+            text = "アプリの初期化に失敗しました。端末の空き容量を確認して、アプリを再起動してください。" +
+                "データを守るため、アプリの削除やデータの消去は行わないでください。",
             style = MaterialTheme.typography.bodyMedium
         )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            text = "写真そのものは削除されていません。",
-            style = MaterialTheme.typography.bodySmall
-        )
-        if (reason == DatabaseRecovery.Reason.CORRUPTED) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = DatabaseRecovery.RESTORE_HINT,
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
     }
 }

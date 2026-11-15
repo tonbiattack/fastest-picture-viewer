@@ -763,12 +763,10 @@ class GalleryRepositoryImpl(
                 // 失敗したボリュームの行は触らないため、既存のキャッシュは保護される
                 failedVolumes += volumeName
                 anyFailure = true
-                // 原因を追えるよう、例外の種類と内容を残す (Issue #88)。
-                // 以前は捨てていたため、実機で原因特定に時間がかかった
+                // 例外メッセージやスタックトレースに個人のパスが含まれうるため記録しない。
                 Log.w(
                     "FPV-Perf",
-                    "volume=$volumeName scan failed: ${t.javaClass.simpleName}: ${t.message}",
-                    t
+                    "volume scan failed: ${t.javaClass.simpleName}"
                 )
             }
         }
