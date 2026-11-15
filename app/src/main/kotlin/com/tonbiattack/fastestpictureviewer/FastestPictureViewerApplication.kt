@@ -118,8 +118,7 @@ class FastestPictureViewerApplication : Application(), ImageLoaderFactory {
     /**
      * 依存の生成に失敗したときに保持するエラー (Issue #88)。
      *
-     * ここで例外を投げるとプロセスごと落ちて、二度と起動できなくなる。
-     * 失敗しても画像キャッシュは使えるよう、生成を分けて最小限の画面を出す。
+     * 初期化中の例外について、最小限の案内画面を表示する。
      */
     @Volatile
     var startupError: Throwable? = null
@@ -139,7 +138,7 @@ class FastestPictureViewerApplication : Application(), ImageLoaderFactory {
         imageLoader = buildImageLoader()
         container = try {
             AppContainer(this, imageLoader)
-        } catch (t: Throwable) {
+        } catch (t: Exception) {
             // DB 破損などで生成に失敗してもプロセスを落とさない。
             // 画面側で案内を出し、再起動や復旧を促す
             startupError = t
