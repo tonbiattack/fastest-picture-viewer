@@ -103,9 +103,16 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         const val DATABASE_NAME = "fastest-picture-viewer.db"
 
-        /** DB の自動退避・再作成は行わない。実際のオープンは Room に任せる。 */
-        fun build(context: Context): AppDatabase =
-            Room.databaseBuilder(
+        /**
+         * DB を構築し、その場で開いて疎通を確認する (Issue #88)。
+         *
+         * Room は遅延初期化のため、開かないまま返すと破損に気づけない。
+         * 実機では、破損した DB を開いた例外が Room 内部のコルーチンで発生し、
+         * 捕捉できずに起動直後クラッシュした。ここで確実に開き、
+         * 失敗を呼び出し元（起動経路）へ伝える。
+         */
+        fun build(context: Context): AppDatabase {
+            val db = Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 DATABASE_NAME
@@ -119,6 +126,17 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_7_8,
                 MIGRATION_8_9
             ).build()
+            try {
+                // 実際にファイルを開かせる。破損ならここで例外になる
+                db.openHelper.writableDatabase
+            } catch (t: Throwable) {
+                // 開けなかった DB は閉じる。開いたままにすると、
+                // 退避・再作成のときにファイルを掴んで失敗する
+                runCatching { db.close() }
+                throw t
+            }
+            return db
+        }
 
         /** テスト用のメモリ DB を構築する */
         fun buildInMemory(context: Context): AppDatabase =

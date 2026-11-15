@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
@@ -32,6 +33,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
 import com.tonbiattack.fastestpictureviewer.core.permission.MediaPermissions
+import com.tonbiattack.fastestpictureviewer.data.DatabaseError
 import com.tonbiattack.fastestpictureviewer.ui.AppNavHost
 import com.tonbiattack.fastestpictureviewer.ui.theme.FastestPictureViewerTheme
 
@@ -63,7 +65,16 @@ class MainActivity : ComponentActivity() {
         if (failure != null) {
             setContent {
                 FastestPictureViewerTheme {
-                    StartupFailureScreen()
+                    StartupFailureScreen(
+                        error = failure,
+                        onReset = {
+                            // 利用者が明示的に選んだときだけ DB を退避して作り直す
+                            if (app.resetDatabaseAndRetry()) {
+                                recreate()
+                            }
+                        },
+                        onRetry = { recreate() }
+                    )
                 }
             }
             return
@@ -154,10 +165,16 @@ class MainActivity : ComponentActivity() {
 /**
  * 依存の生成に失敗したときの案内 (Issue #88)。
  *
- * 初期化時の失敗について、未確認の復旧結果を表示しない。
+ * 破損だと確認できた場合だけ、初期化の選択肢を出す。
+ * 容量不足や権限の問題で初期化を勧めると、直せば戻るデータまで失うため。
  */
 @Composable
-private fun StartupFailureScreen() {
+private fun StartupFailureScreen(
+    error: Throwable,
+    onReset: () -> Unit,
+    onRetry: () -> Unit
+) {
+    val canReset = DatabaseError.canOfferReset(error)
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -170,9 +187,32 @@ private fun StartupFailureScreen() {
         )
         Spacer(Modifier.height(12.dp))
         Text(
-            text = "アプリの初期化に失敗しました。端末の空き容量を確認して、アプリを再起動してください。" +
-                "データを守るため、アプリの削除やデータの消去は行わないでください。",
+            text = if (canReset) {
+                "画像の情報を保存しているファイルが壊れている可能性があります。"
+            } else {
+                "端末の空き容量や権限を確認して、もう一度お試しください。"
+            },
             style = MaterialTheme.typography.bodyMedium
         )
+        Spacer(Modifier.height(16.dp))
+        if (canReset) {
+            Text(
+                text = DatabaseError.RESET_DESCRIPTION,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = onReset) {
+                Text("画像の情報を作り直す")
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "壊れたファイルは端末内に退避され、削除はされません。",
+                style = MaterialTheme.typography.bodySmall
+            )
+        } else {
+            Button(onClick = onRetry) {
+                Text("再試行")
+            }
+        }
     }
 }
