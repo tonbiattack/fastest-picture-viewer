@@ -90,7 +90,7 @@ internal class PreservingOpenHelperFactory(
         FolderRepresentativeEntity::class,
         FolderSummaryStateEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -132,8 +132,9 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_6_7,
                 MIGRATION_7_8,
                 MIGRATION_8_9,
-                MIGRATION_9_10
-            ).build()
+                MIGRATION_9_10,
+                MIGRATION_10_11
+            ).addCallback(CACHE_INVALIDATION_CALLBACK).build()
             try {
                 // 実際にファイルを開かせる。破損ならここで例外になる
                 db.openHelper.writableDatabase
@@ -148,7 +149,35 @@ abstract class AppDatabase : RoomDatabase() {
 
         /** テスト用のメモリ DB を構築する */
         fun buildInMemory(context: Context): AppDatabase =
-            Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).build()
+            Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+                .addCallback(CACHE_INVALIDATION_CALLBACK).build()
+
+        /** 集計元の変更と同じトランザクション内で古いキャッシュを無効化する。 */
+        internal fun installCacheInvalidationTriggers(db: SupportSQLiteDatabase) {
+            listOf("images", "excluded_folders", "unreadable_images").forEach { table ->
+                listOf("INSERT", "UPDATE", "DELETE").forEach { operation ->
+                    db.execSQL(
+                        "CREATE TRIGGER IF NOT EXISTS `invalidate_${table}_${operation.lowercase()}` " +
+                            "AFTER $operation ON `$table` BEGIN " +
+                            "DELETE FROM `folder_summary_state` WHERE `id` = 1; END"
+                    )
+                }
+            }
+        }
+
+        private val CACHE_INVALIDATION_CALLBACK = object : RoomDatabase.Callback() {
+            override fun onCreate(db: SupportSQLiteDatabase) {
+                installCacheInvalidationTriggers(db)
+            }
+        }
+
+        internal val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 旧版では無効化漏れがあるため、既存キャッシュの有効性は信用しない。
+                db.execSQL("DELETE FROM `folder_summary_state`")
+                installCacheInvalidationTriggers(db)
+            }
+        }
 
         /**
          * v1 → v2: ボリューム同期状態テーブルを追加する。

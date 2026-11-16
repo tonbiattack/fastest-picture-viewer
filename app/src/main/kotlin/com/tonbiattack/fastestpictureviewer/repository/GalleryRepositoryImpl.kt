@@ -2,6 +2,7 @@ package com.tonbiattack.fastestpictureviewer.repository
 
 import android.os.SystemClock
 import android.util.Log
+import androidx.room.withTransaction
 import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
 import com.tonbiattack.fastestpictureviewer.core.util.NaturalSortKey
@@ -32,6 +33,7 @@ import com.tonbiattack.fastestpictureviewer.data.VolumeSyncStateEntity
 import com.tonbiattack.fastestpictureviewer.perf.StartupTrace
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -165,37 +167,42 @@ class GalleryRepositoryImpl(
      */
     override suspend fun rebuildFolderSummaryCache() {
         withContext(Dispatchers.IO) {
-        val started = SystemClock.elapsedRealtime()
-        try {
-            val summaries = imageDao.getAllFolderSummaries()
-            val representatives = imageDao.getAllRepresentatives()
-            val total = imageDao.count()
-            summaryCacheDao.replaceAll(
-                summaries = summaries.map { row ->
-                    FolderSummaryEntity(
-                        folderKey = row.folderKey,
-                        volumeName = row.volumeName,
-                        relativePath = row.relativePath,
-                        imageCount = row.imageCount,
-                        latestModifiedSec = row.latestModifiedSec
+            val started = SystemClock.elapsedRealtime()
+            try {
+                // 集計元の読み取りからキャッシュの公開まで、他の書き込みと混ざらないようにする。
+                db.withTransaction {
+                    val summaries = imageDao.getAllFolderSummaries()
+                    val representatives = imageDao.getAllRepresentatives()
+                    val total = imageDao.count()
+                    summaryCacheDao.replaceAll(
+                        summaries = summaries.map { row ->
+                            FolderSummaryEntity(
+                                folderKey = row.folderKey,
+                                volumeName = row.volumeName,
+                                relativePath = row.relativePath,
+                                imageCount = row.imageCount,
+                                latestModifiedSec = row.latestModifiedSec
+                            )
+                        },
+                        representatives = representatives.map { row ->
+                            FolderRepresentativeEntity(
+                                folderKey = row.folderKey,
+                                id = row.id,
+                                dateModifiedSec = row.dateModifiedSec,
+                                size = row.size
+                            )
+                        },
+                        imageCount = total,
+                        rebuiltAtMs = System.currentTimeMillis()
                     )
-                },
-                representatives = representatives.map { row ->
-                    FolderRepresentativeEntity(
-                        folderKey = row.folderKey,
-                        id = row.id,
-                        dateModifiedSec = row.dateModifiedSec,
-                        size = row.size
-                    )
-                },
-                imageCount = total,
-                rebuiltAtMs = System.currentTimeMillis()
-            )
-            StartupTrace.task("folder_summary_cache_rebuild", SystemClock.elapsedRealtime() - started)
-        } catch (t: Exception) {
-            // キャッシュ作成の失敗で一覧を壊さない。次回の同期で再試行する
-            Log.w("FPV-Perf", "folder summary cache rebuild failed", t)
-        }
+                }
+                StartupTrace.task("folder_summary_cache_rebuild", SystemClock.elapsedRealtime() - started)
+            } catch (t: CancellationException) {
+                throw t
+            } catch (t: Exception) {
+                // キャッシュ作成の失敗で一覧を壊さない。次回の同期で再試行する
+                Log.w("FPV-Perf", "folder summary cache rebuild failed", t)
+            }
         }
     }
 
