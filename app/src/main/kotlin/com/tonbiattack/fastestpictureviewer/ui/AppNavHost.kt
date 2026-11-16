@@ -1,11 +1,16 @@
 package com.tonbiattack.fastestpictureviewer.ui
 
 import android.net.Uri
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -40,6 +45,27 @@ private const val KEY_LAST_VIEWED_INDEX = "lastViewedIndex"
 /** 「前回の続き」からグリッドを開く際の対象画像 */
 private const val KEY_RESUME_ITEM = "resumeItemId"
 private const val KEY_RESUME_INDEX = "resumeIndex"
+
+/** 既存のバックアップ画面へ進む前の案内。ここではデータを読み書きしない。 */
+@Composable
+internal fun InitialBackupPrompt(onSkip: () -> Unit, onChooseBackup: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onSkip,
+        title = { Text("バックアップから復元しますか？") },
+        text = {
+            Text(
+                "以前書き出したバックアップがある場合は、ファイルを選んで内容を確認してから復元できます。" +
+                    "この時点では設定やデータは変更されません。バックアップは後からメニューでも選べます。"
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onChooseBackup) { Text("バックアップを選ぶ") }
+        },
+        dismissButton = {
+            TextButton(onClick = onSkip) { Text("あとで") }
+        }
+    )
+}
 
 /** 画面経路 */
 object Routes {
@@ -84,6 +110,9 @@ fun AppNavHost(
 ) {
     val factory = container.viewModelFactory
     val scope = rememberCoroutineScope()
+    var showBackupPrompt by remember(container) {
+        mutableStateOf(container.initialBackupPromptStore.shouldShow())
+    }
 
     NavHost(
         navController = navController,
@@ -91,6 +120,19 @@ fun AppNavHost(
         modifier = modifier
     ) {
         composable(Routes.FOLDER_LIST) {
+            if (showBackupPrompt) {
+                InitialBackupPrompt(
+                    onSkip = {
+                        container.initialBackupPromptStore.dismiss()
+                        showBackupPrompt = false
+                    },
+                    onChooseBackup = {
+                        container.initialBackupPromptStore.dismiss()
+                        showBackupPrompt = false
+                        navController.navigate(Routes.BACKUP)
+                    }
+                )
+            }
             val viewModel: FolderListViewModel = viewModel(factory = factory)
             StartupTrace.mark("folder_list_vm_created")
             val listState = viewModel.uiState.collectAsStateWithLifecycle().value

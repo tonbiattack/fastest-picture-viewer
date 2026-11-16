@@ -38,6 +38,72 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tonbiattack.fastestpictureviewer.data.BackupData
+
+/**
+ * 復元前の確認ダイアログ (Issue #111)。
+ *
+ * 取り込み前に「何が追加され、何が上書きされるか」を利用者が確認できるようにする。
+ * 表示設定はバックアップの値で上書きされるため、上書き後の実値を出す。
+ * 画面から切り離してあるのは、表示内容を Compose テストで固定するため。
+ */
+@Composable
+internal fun RestoreConfirmDialog(
+    data: BackupData,
+    exportedAtLabel: String,
+    settingsLabel: String,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val summary = data.summary
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("バックアップを取り込みますか？") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "書き出し日時（記録値）: $exportedAtLabel",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "お気に入り・タグ・除外フォルダは、いまのデータを消さずに追加します。",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "表示設定は、いまの設定をバックアップの値で上書きします。",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    settingsLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "画像そのもの・閲覧履歴・サムネイルは対象外です（復元されません）。",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(12.dp))
+                Text("タグ: ${summary.tags} 件", style = MaterialTheme.typography.bodySmall)
+                Text("フォルダのタグ: ${summary.folderTags} 件", style = MaterialTheme.typography.bodySmall)
+                Text("フォルダお気に入り: ${summary.favoriteFolders} 件", style = MaterialTheme.typography.bodySmall)
+                Text("画像お気に入り: ${summary.favoriteImages} 件", style = MaterialTheme.typography.bodySmall)
+                Text("除外フォルダ: ${summary.excludedFolders} 件", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("取り込む") }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel) { Text("キャンセル") }
+        }
+    )
+}
 
 /**
  * バックアップの書き出し・取り込み画面 (Issue #74)。
@@ -70,44 +136,32 @@ fun BackupScreen(
     val openLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
+        // ファイル選択のキャンセル。何も起きないのが正しい
         if (uri == null) return@rememberLauncherForActivityResult
-        runCatching { resolver.openInputStream(uri) }
-            .getOrNull()
-            ?.let { viewModel.prepareImport(it) }
+        // 開けなかった理由を黙って捨てると、利用者は何が起きたか分からない
+        val stream = runCatching { resolver.openInputStream(uri) }.getOrNull()
+        if (stream == null) {
+            viewModel.onOpenFailed()
+        } else {
+            viewModel.prepareImport(stream)
+        }
     }
 
     if (state.pendingImport != null) {
-        val summary = viewModel.summaryOf(state.pendingImport)
-        AlertDialog(
-            onDismissRequest = viewModel::cancelImport,
-            title = { Text("バックアップを取り込みますか？") },
-            text = {
-                Column {
-                    Text(
-                        "お気に入り・タグ・除外フォルダは追加します。列数や並び順などの表示設定はバックアップの値で上書きします。",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text("タグ: ${summary.tags} 件", style = MaterialTheme.typography.bodySmall)
-                    Text("フォルダのタグ: ${summary.folderTags} 件", style = MaterialTheme.typography.bodySmall)
-                    Text("フォルダお気に入り: ${summary.favoriteFolders} 件", style = MaterialTheme.typography.bodySmall)
-                    Text("画像お気に入り: ${summary.favoriteImages} 件", style = MaterialTheme.typography.bodySmall)
-                    Text("除外フォルダ: ${summary.excludedFolders} 件", style = MaterialTheme.typography.bodySmall)
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = viewModel::confirmImport) { Text("取り込む") }
-            },
-            dismissButton = {
-                TextButton(onClick = viewModel::cancelImport) { Text("キャンセル") }
-            }
+        val data = state.pendingImport
+        RestoreConfirmDialog(
+            data = data,
+            exportedAtLabel = viewModel.exportedAtLabel(data),
+            settingsLabel = viewModel.settingsLabel(data.settings),
+            onConfirm = viewModel::confirmImport,
+            onCancel = viewModel::cancelImport
         )
     }
 
     state.error?.let { message ->
         AlertDialog(
             onDismissRequest = viewModel::clearMessage,
-            title = { Text("読み込めませんでした") },
+            title = { Text(state.errorTitle) },
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = viewModel::clearMessage) { Text("閉じる") }

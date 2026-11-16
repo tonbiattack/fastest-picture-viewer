@@ -11,6 +11,7 @@ import com.tonbiattack.fastestpictureviewer.data.AppDatabase
 import com.tonbiattack.fastestpictureviewer.data.BackupRepository
 import com.tonbiattack.fastestpictureviewer.data.ContentResolverReadableProbe
 import com.tonbiattack.fastestpictureviewer.data.DatabaseReset
+import com.tonbiattack.fastestpictureviewer.data.InitialBackupPromptStore
 import com.tonbiattack.fastestpictureviewer.data.LastViewedStore
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
 import com.tonbiattack.fastestpictureviewer.data.SharedPreferencesLastViewedStore
@@ -45,6 +46,13 @@ class AppContainer(
     context: Context,
     private val imageLoader: ImageLoader
 ) {
+
+    /** DB を開く前に既存インストールを判定する。案内は復元を自動実行しない。 */
+    val initialBackupPromptStore = InitialBackupPromptStore(context).also {
+        it.initializeForInstall(
+            databaseExistsBeforeOpen = context.getDatabasePath(AppDatabase.DATABASE_NAME).exists()
+        )
+    }
 
     val database: AppDatabase = AppDatabase.build(context).also {
         // 起動区間の計測 (Issue #99)。DB を開き終えた時点
