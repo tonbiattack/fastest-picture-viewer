@@ -1264,9 +1264,21 @@ private fun SyncErrorBanner(message: String, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * セルに出す短い日付表記。
+ *
+ * [SimpleDateFormat] は生成コストが高く、スレッドセーフでもない。
+ * セルごとに毎回作るとスクロール・初回描画で無視できない負荷になるため、
+ * スレッドローカルで 1 個を使い回す (Issue #110)。
+ */
+private val shortDateFormatter = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue(): SimpleDateFormat =
+        SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
+}
+
 private fun formatShortDate(epochSeconds: Long): String {
     if (epochSeconds <= 0) return ""
-    val formatter = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
+    val formatter = shortDateFormatter.get() ?: return ""
     return formatter.format(Date(epochSeconds * 1000))
 }
 

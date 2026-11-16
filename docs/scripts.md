@@ -11,6 +11,7 @@
 | `check-env.ps1` | JDK・Android SDK・adb の確認 |
 | `build-and-test.ps1` | 単体テスト + debug APK 生成 |
 | `device.ps1` | 端末情報・APK 導入・起動計測・スクリーンショット・ログ |
+| `snapshot.ps1` | 検証前のスナップショット（端末情報・アプリ情報・shared_prefs など）を退避 |
 | `transfer-to-sd.ps1` | PC のフォルダを SD カードへ転送（zip / 内部経由 / 直接） |
 | `ui.ps1` | 実機の UI 要素検索・タップ・長押し（uiautomator 経由） |
 | `benchmark.ps1` | 起動・復帰・フォルダ遷移の性能計測（P50/P95）。詳細は [benchmark.md](benchmark.md) |
@@ -91,9 +92,76 @@ python -X utf8 scripts\ui_find.py captures\u.xml "タグ"
 | 任意の APK を指定 | `device.ps1 -Action Install -Apk <path>` |
 
 - 未署名の `app-release-unsigned.apk` を指定すると、導入前にエラーで止める。
-- 署名が異なる APK を入れると `INSTALL_FAILED_UPDATE_INCOMPATIBLE` になる。
-  その場合はアンインストールが必要で、アプリ内データは失われる（スクリプトでは実施しない）。
+- **インストール前に署名を確認する（Issue #111）。** 端末に入っている APK と、これから入れる
+  APK の証明書 SHA-256 を突き合わせ、不一致なら中止する。アンインストールは案内しない
+  （アプリ内データが消えるため）。同じ署名の APK を用意する方向へ案内する。
+- 端末側の署名は `dumpsys package` の `signatures` からも見えるが、あれは
+  `Signature.hashCode()` を hex にした短い値で、APK 側の証明書 SHA-256 とは別物。
+  そのため端末の APK を一時的に取り出して `apksigner` に掛けて比較している
+  （取り出した APK は確認後に削除する）。
+- `apksigner` が無いなど比較できない場合は、何が確認できなかったかを表示して警告に留め、
+  インストールを試行する。署名が違えば `INSTALL_FAILED_UPDATE_INCOMPATIBLE` で失敗するが、
+  その失敗でアプリデータは消えない。
+- 抜け道のオプション（`-SkipSignatureCheck` のようなもの）は用意していない。
 - 詳しい手順とトラブルシューティングは [APK の導入・更新手順](install-and-update.md) を参照。
+
+## 検証前のスナップショット（snapshot.ps1）
+
+更新や検証の前に、端末の状態を `captures\backup\<timestamp>\` へ退避する（Issue #111）。
+写真そのものには触れず、アンインストール・`pm clear`・データ削除は行わない。
+
+```powershell
+# 端末が複数接続されている場合は -Serial を必ず指定する
+powershell -ExecutionPolicy Bypass -File scripts\snapshot.ps1 -Serial 6ad7aa65
+
+# 退避先フォルダ名に識別子を付ける
+powershell -ExecutionPolicy Bypass -File scripts\snapshot.ps1 -Serial 6ad7aa65 -Label before-111
+
+# 使い方を表示する（端末には触れない）
+powershell -ExecutionPolicy Bypass -File scripts\snapshot.ps1 -Help
+```
+
+| 目的 | コマンド |
+| --- | --- |
+| 既定の退避 | `snapshot.ps1 -Serial <serial>` |
+| 識別子付き | `snapshot.ps1 -Serial <serial> -Label before-111` |
+| APK の退避を省く | `snapshot.ps1 -Serial <serial> -SkipInstalledApk` |
+| DB 件数の取得を省く | `snapshot.ps1 -Serial <serial> -SkipDbCounts` |
+| DB を pull して件数も取る | `snapshot.ps1 -Serial <serial> -DbCountMode Pull` |
+
+### 必須と任意
+
+**必須**（取得できなければ終了コード 1 で中止し、検証を続行させない）
+
+| 項目 | 出力 |
+| --- | --- |
+| 端末情報（model / Android / API / serial / ストレージ） | `device.txt` |
+| アプリのバージョン・署名情報 | `app-info.txt` |
+| `shared_prefs/*.xml` の中身 | `shared_prefs/` |
+
+**任意**（取得できなくても警告のみで続行できる）
+
+| 項目 | 出力 | 取得できないことがある理由 |
+| --- | --- | --- |
+| インストール済み APK と証明書 SHA-256 | `installed-app.apk` / `apk-signature.txt` | `apksigner` が無い |
+| DB の主要テーブル件数 | `db-tables.txt` | 端末に `sqlite3` が無い（実機 OPPO は該当） |
+| DB ファイルのサイズ | `db-files.txt` | `run-as` が使えない |
+| アプリ内バックアップ JSON | `backup-json/` | SAF で人が書き出す必要がある |
+| MediaStore の画像件数 | `image-count.txt` | 権限や MediaStore の状態に依存 |
+
+- DB 全体は約 300MB あるため既定では pull しない。件数は端末側の `sqlite3` で数える。
+- 実機 OPPO Reno13 A（Android 16）には `sqlite3` が入っていないため、既定では DB 件数は
+  「未取得」になる。件数まで控えたいときだけ `-DbCountMode Pull` を付ける
+  （DB を PC へ pull し、PC 側の `sqlite3` で数える。実測 約 54 秒）。
+- アプリ内バックアップ JSON は Storage Access Framework で保存先を人が選ぶため自動化できない。
+  既定の名前 `pictobi-backup-YYYYMMDD-HHMM.json` で保存済みなら拾う。無ければ手順を
+  [APK の導入・更新手順](install-and-update.md#0-1-検証前のスナップショットissue-111) に従う。
+- 実行の最後に「退避した項目 / 取得できなかった項目」を必須・任意の別で一覧表示する。
+  同じ内容が `summary.txt` と `snapshot.json` に残る。
+- 終了コード: `0` = 必須項目をすべて退避 / `1` = 必須項目の失敗 / `2` = 引数・前提のエラー。
+- 退避のみで、端末へ書き戻す機能は持たない。復旧は人が判断して行う。
+- 詳しいチェックリストと復旧手順は
+  [APK の導入・更新手順](install-and-update.md#0-1-検証前のスナップショットissue-111) を参照。
 
 ## PC から SD カードへの転送（transfer-to-sd.ps1）
 
