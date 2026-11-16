@@ -84,7 +84,7 @@ fun BackupScreen(
             text = {
                 Column {
                     Text(
-                        "既存のデータは消さずに、足りない項目だけを追加します。",
+                        "お気に入り・タグ・除外フォルダは追加します。列数や並び順などの表示設定はバックアップの値で上書きします。",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(Modifier.height(12.dp))

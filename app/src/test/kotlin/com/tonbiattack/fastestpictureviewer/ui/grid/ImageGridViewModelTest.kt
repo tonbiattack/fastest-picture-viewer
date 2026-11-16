@@ -65,6 +65,12 @@ class ImageGridViewModelTest {
             this.isLandscape = isLandscape
             _columnCount.value = if (isLandscape) _landscape.value else _portrait.value
         }
+
+        override fun restoreColumnCounts(portrait: Int, landscape: Int) {
+            _portrait.value = portrait.coerceIn(2, 6)
+            _landscape.value = landscape.coerceIn(2, 6)
+            _columnCount.value = if (isLandscape) _landscape.value else _portrait.value
+        }
     }
 
     private class FakeRepository(private val images: List<ImageItem>) : GalleryRepository {

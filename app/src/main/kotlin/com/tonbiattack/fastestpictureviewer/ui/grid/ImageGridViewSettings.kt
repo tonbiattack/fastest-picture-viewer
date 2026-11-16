@@ -28,6 +28,9 @@ interface ImageGridViewSettings {
 
     /** 画面の向きを通知する。保存値は変更せず、適用する列数だけ切り替える */
     fun setLandscape(isLandscape: Boolean)
+
+    /** 現在の向きを変えずに、縦横それぞれの列数を復元する */
+    fun restoreColumnCounts(portrait: Int, landscape: Int)
 }
 
 /**
@@ -89,6 +92,18 @@ class SharedPreferencesImageGridViewSettings(context: Context) : ImageGridViewSe
         } else {
             _portraitColumnCount.value
         }
+    }
+
+    override fun restoreColumnCounts(portrait: Int, landscape: Int) {
+        val portraitCount = portrait.coerceIn(MIN_COLUMN_COUNT, MAX_COLUMN_COUNT)
+        val landscapeCount = landscape.coerceIn(MIN_COLUMN_COUNT, MAX_COLUMN_COUNT)
+        prefs.edit {
+            putInt(KEY_PORTRAIT_COLUMN_COUNT, portraitCount)
+            putInt(KEY_LANDSCAPE_COLUMN_COUNT, landscapeCount)
+        }
+        _portraitColumnCount.value = portraitCount
+        _landscapeColumnCount.value = landscapeCount
+        _columnCount.value = if (_isLandscape.value) landscapeCount else portraitCount
     }
 
     companion object {
