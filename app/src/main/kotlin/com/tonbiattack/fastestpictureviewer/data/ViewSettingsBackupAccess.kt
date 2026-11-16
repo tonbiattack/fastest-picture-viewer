@@ -29,12 +29,6 @@ class ViewSettingsBackupAccess(
             ?.let { folderSettings.setSortMode(it) }
         folderSettings.setShowResumeCard(settings.showResumeCard)
 
-        // 画像グリッドの列数は「現在の向き」に書き込む実装のため、
-        // 縦横それぞれへ戻すときは向きを切り替えながら設定する
-        imageSettings.setLandscape(false)
-        imageSettings.setColumnCount(settings.imageColumnsPortrait)
-        imageSettings.setLandscape(true)
-        imageSettings.setColumnCount(settings.imageColumnsLandscape)
-        imageSettings.setLandscape(false)
+        imageSettings.restoreColumnCounts(settings.imageColumnsPortrait, settings.imageColumnsLandscape)
     }
 }
