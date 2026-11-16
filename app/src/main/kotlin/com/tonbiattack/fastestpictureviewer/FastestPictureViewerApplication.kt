@@ -9,12 +9,14 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
 import com.tonbiattack.fastestpictureviewer.data.BackupRepository
+import com.tonbiattack.fastestpictureviewer.data.BackupStatusStore
 import com.tonbiattack.fastestpictureviewer.data.ContentResolverReadableProbe
 import com.tonbiattack.fastestpictureviewer.data.DatabaseReset
 import com.tonbiattack.fastestpictureviewer.data.InitialBackupPromptStore
 import com.tonbiattack.fastestpictureviewer.data.LastViewedStore
 import com.tonbiattack.fastestpictureviewer.data.MediaStoreScanner
 import com.tonbiattack.fastestpictureviewer.data.SharedPreferencesLastViewedStore
+import com.tonbiattack.fastestpictureviewer.data.SharedPreferencesBackupStatusStore
 import com.tonbiattack.fastestpictureviewer.data.ViewSettingsBackupAccess
 import com.tonbiattack.fastestpictureviewer.perf.StartupTrace
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
@@ -58,11 +60,21 @@ class AppContainer(
         // 起動区間の計測 (Issue #99)。DB を開き終えた時点
         StartupTrace.mark("db_open")
     }
+
+    /**
+     * バックアップの書き出し状況 (Issue #108)。
+     * 最終書き出し日時と、書き出し後の変更有無だけを持つ。
+     * repository より先に作る（変更通知の記録先として渡すため）。
+     */
+    val backupStatusStore: BackupStatusStore = SharedPreferencesBackupStatusStore(context)
+
     val repository: GalleryRepository =
         GalleryRepositoryImpl(
             db = database,
             scanner = MediaStoreScanner(context),
-            readableProbe = ContentResolverReadableProbe(context)
+            readableProbe = ContentResolverReadableProbe(context),
+            // タグ・お気に入り・除外の変更を記録し、バックアップのリマインドに使う (Issue #108)
+            onUserDataChanged = { backupStatusStore.markChanged() }
         ).also {
         StartupTrace.mark("repository_ready")
     }
@@ -105,7 +117,12 @@ class AppContainer(
             val savedStateHandle = with(extras) { createSavedStateHandle() }
             return when {
                 modelClass.isAssignableFrom(FolderListViewModel::class.java) ->
-                    FolderListViewModel(repository, folderViewSettings, lastViewedStore)
+                    FolderListViewModel(
+                        repository,
+                        folderViewSettings,
+                        lastViewedStore,
+                        backupStatusStore
+                    )
                 modelClass.isAssignableFrom(ExcludedFoldersViewModel::class.java) ->
                     ExcludedFoldersViewModel(repository)
                 modelClass.isAssignableFrom(FavoriteImagesViewModel::class.java) ->
@@ -119,7 +136,8 @@ class AppContainer(
                 modelClass.isAssignableFrom(BackupViewModel::class.java) ->
                     BackupViewModel(
                         backupRepository = backupRepository,
-                        appVersionName = BuildConfig.VERSION_NAME
+                        appVersionName = BuildConfig.VERSION_NAME,
+                        backupStatusStore = backupStatusStore
                     )
                 else -> throw IllegalArgumentException("Unknown ViewModel: $modelClass")
             } as T

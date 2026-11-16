@@ -205,6 +205,16 @@ fun BackupScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
+                // 最終書き出し日時 (Issue #108)。書き出し忘れに気づけるようにする
+                viewModel.lastExportedLabel()?.let { label ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 Spacer(Modifier.height(20.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(16.dp))
