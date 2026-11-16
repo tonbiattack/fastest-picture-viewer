@@ -29,6 +29,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -99,9 +100,19 @@ class FolderListViewModelTest {
     }
 
     /** テスト用の固定リポジトリ */
-    private class FakeRepository : GalleryRepository {
+    private class FakeRepository(
+        /**
+         * true にすると、代表サムネイルを明示的に設定するまで発行しない。
+         * 実機の Room は「まだ読めていない」状態を発行しないため、その挙動を再現する (Issue #110)
+         */
+        private val deferRepresentatives: Boolean = false
+    ) : GalleryRepository {
         val foldersFlow = MutableStateFlow<List<FolderSummaryRow>>(emptyList())
         val representativesFlow = MutableStateFlow<List<RepresentativeImageRow>>(emptyList())
+
+        /** [deferRepresentatives] が true のときだけ使う。null の間は発行しない */
+        val representativesGate = MutableStateFlow<List<RepresentativeImageRow>?>(null)
+
         val statusFlow = MutableStateFlow(SyncStatus.IDLE)
 
         override val syncStatus: StateFlow<SyncStatus> = statusFlow
@@ -109,7 +120,12 @@ class FolderListViewModelTest {
         override fun observeFolderSummaries(): Flow<List<FolderSummaryRow>> = foldersFlow
         override suspend fun rebuildFolderSummaryCache() = Unit
 
-        override fun observeRepresentatives(): Flow<List<RepresentativeImageRow>> = representativesFlow
+        override fun observeRepresentatives(): Flow<List<RepresentativeImageRow>> =
+            if (deferRepresentatives) {
+                representativesGate.filterNotNull()
+            } else {
+                representativesFlow
+            }
         override fun observeImages(folderKey: String): Flow<List<ImageItem>> =
             MutableStateFlow(emptyList())
 
@@ -289,6 +305,38 @@ class FolderListViewModelTest {
         dateModifiedSec = 1234L,
         size = 5678L
     )
+
+    @Test
+    fun `代表サムネイルが届くまで一覧を確定しない`() = runTest {
+        // Issue #110: 代表サムネイルを onStart で空リストにすると、2,667 件を
+        // サムネイル無しで 1 回描画し、届いた時点でもう一度全件描画していた。
+        // 実機では 2 回目の描画に約 1.2 秒かかり、起動が遅くなる主因だった。
+        // 集計だけ先に届いても、代表が揃うまで一覧を出さないことを固定する。
+        val repo = FakeRepository(deferRepresentatives = true)
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+
+        val key = FolderKeys.create("v", "Pictures/a/")
+        repo.foldersFlow.value = listOf(summary(key))
+        advanceUntilIdle()
+
+        // 集計だけ届いた段階では、まだ一覧を確定しない (初回フレーム待ちのまま)
+        val beforeRepresentatives = vm.uiState.value
+        assertTrue(
+            "代表サムネイル到着前に一覧を確定してしまっている",
+            beforeRepresentatives.isLoadingFirstFrame
+        )
+        assertTrue(beforeRepresentatives.folders.isEmpty())
+
+        // 代表が届いたら、サムネイル付きで 1 回だけ確定する
+        repo.representativesGate.value = listOf(representative(key))
+        advanceUntilIdle()
+
+        val afterRepresentatives = vm.uiState.value
+        assertFalse(afterRepresentatives.isLoadingFirstFrame)
+        assertEquals(1, afterRepresentatives.folders.size)
+        assertEquals("content-1", afterRepresentatives.folders.first().representativeImageUri)
+    }
 
     @Test
     fun `同期開始中でも既存の一覧はクリアされない`() = runTest {

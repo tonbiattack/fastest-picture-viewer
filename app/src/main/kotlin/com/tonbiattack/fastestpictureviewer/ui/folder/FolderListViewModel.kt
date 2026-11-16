@@ -227,8 +227,13 @@ class FolderListViewModel(
     private val dataSource = combine(
         // Issue #106: キャッシュ済みの集計があればそれを読む（未作成なら内部で従来の集計へ切り替わる）
         repository.observeFolderSummaries(),
-        // 代表サムネイル・お気に入りの到着を待たず、フォルダ一覧を先に表示する
-        repository.observeRepresentatives().onStart { emit(emptyList()) },
+        // 代表サムネイルは一覧の見た目そのものなので必須にする (Issue #110)。
+        // 以前は onStart で空リストを先に出していたが、その結果 2,667 件を
+        // サムネイル無しで 1 回描画し、代表が届いた時点でもう一度全件描画していた。
+        // 実機では 2 回目の描画に約 1.2 秒かかっており、起動が遅くなる主因だった。
+        // 集計と代表は同じキャッシュから読むため、到着時刻はほぼ同時になる。
+        repository.observeRepresentatives(),
+        // お気に入り・最近閲覧・タグは一覧の骨格に不要なので、到着を待たない
         repository.observeFavoriteFolders().onStart { emit(emptyList()) },
         repository.observeRecentFolders().onStart { emit(emptyList()) },
         repository.observeFolderTagNames().onStart { emit(emptyList()) }
