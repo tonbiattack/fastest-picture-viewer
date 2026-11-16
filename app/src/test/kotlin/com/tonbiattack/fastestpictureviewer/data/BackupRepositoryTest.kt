@@ -89,7 +89,10 @@ class BackupRepositoryTest {
         val tag = db.tagDao().insertIgnore(TagEntity(displayName = "旅行", normalizedName = "旅行", createdAtSec = 1L))
         db.tagDao().addLink(FolderTagEntity("external_primary:Pictures/A/", tag, 1L))
         db.favoriteFolderDao().add(FavoriteFolderEntity("external_primary:Pictures/A/", "external_primary", "Pictures/A/", 1L))
-        val backup = repository.collect("0.1.0")
+        db.favoriteImageDao().add(FavoriteImageEntity("content://x/1", 1L))
+        db.excludedFolderDao().add(ExcludedFolderEntity("external_primary:Private/", "external_primary", "Private/", 1L))
+        settings.current = BackupSettings(4, "RECENT", 2, 6, false)
+        val backup = BackupJson.decode(BackupJson.encode(repository.collect("0.1.0")))
 
         // 別の空 DB に復元
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -102,6 +105,9 @@ class BackupRepositoryTest {
             assertEquals(0, restored.tagsReused)
             assertEquals(1, restored.folderTagsAdded)
             assertEquals(1, restored.favoriteFoldersAdded)
+            assertEquals(1, restored.favoriteImagesAdded)
+            assertEquals(1, restored.excludedFoldersAdded)
+            assertEquals(settings.current, settings2.current)
 
             val tags = db2.tagDao().observeTags().first()
             assertEquals("旅行", tags.single().displayName)
@@ -109,6 +115,8 @@ class BackupRepositoryTest {
             assertEquals(tags.single().tagId, links.single().tagId)
             assertEquals("external_primary:Pictures/A/", links.single().folderKey)
             assertEquals(1, db2.favoriteFolderDao().getAll().size)
+            assertEquals("content://x/1", db2.favoriteImageDao().getAll().single().itemId)
+            assertEquals("external_primary:Private/", db2.excludedFolderDao().getAll().single().folderKey)
         } finally {
             db2.close()
         }
