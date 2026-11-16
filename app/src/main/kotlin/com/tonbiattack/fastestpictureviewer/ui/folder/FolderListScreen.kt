@@ -585,6 +585,24 @@ fun FolderListScreen(
                         .fillMaxWidth()
                 )
             }
+
+            // バックアップの書き出し忘れ防止 (Issue #108)。
+            // 起動をブロックせず、条件を満たすときだけ控えめに出す
+            val reminder = state.backupReminderMessage
+            if (state.suggestBackup && reminder != null) {
+                BackupReminderBanner(
+                    message = reminder,
+                    onOpenBackup = {
+                        viewModel.onBackupScreenOpened()
+                        onOpenBackup()
+                    },
+                    onSnooze = viewModel::snoozeBackupReminder,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+                        .fillMaxWidth()
+                )
+            }
         }
     }
 
@@ -1322,6 +1340,49 @@ private fun MediaRescanBanner(
                 horizontalArrangement = Arrangement.End
             ) {
                 TextButton(onClick = onDismiss) { Text("閉じる") }
+            }
+        }
+    }
+}
+
+/**
+ * バックアップの書き出しを促す控えめな案内 (Issue #108)。
+ *
+ * 起動をブロックしない。ダイアログではなくバナーで出し、
+ * 「書き出す」でバックアップ画面へ、「あとで」で 7 日間出さない。
+ * 変更が無いときや前回から日が浅いときは呼ばれない（判定は ViewModel 側）。
+ */
+@Composable
+private fun BackupReminderBanner(
+    message: String,
+    onOpenBackup: () -> Unit,
+    onSnooze: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        tonalElevation = 4.dp
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "バックアップの書き出し",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onSnooze) { Text("あとで") }
+                TextButton(onClick = onOpenBackup) { Text("書き出す") }
             }
         }
     }

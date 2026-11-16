@@ -8,6 +8,7 @@ import com.tonbiattack.fastestpictureviewer.data.BackupError
 import com.tonbiattack.fastestpictureviewer.data.BackupJson
 import com.tonbiattack.fastestpictureviewer.data.BackupRepository
 import com.tonbiattack.fastestpictureviewer.data.BackupSettings
+import com.tonbiattack.fastestpictureviewer.data.BackupStatusStore
 import com.tonbiattack.fastestpictureviewer.data.BackupSummary
 import com.tonbiattack.fastestpictureviewer.data.RestoreResult
 import kotlinx.coroutines.CancellationException
@@ -66,7 +67,15 @@ class BackupViewModel(
     /** ファイル入出力のディスパッチャ（テスト差し替え用） */
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     /** JSON 変換のディスパッチャ（テスト差し替え用） */
-    private val computeDispatcher: CoroutineDispatcher = Dispatchers.Default
+    private val computeDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    /**
+     * 書き出し状況の記録先 (Issue #108)。null なら記録しない（テストの後方互換）。
+     *
+     * 書き出しに成功した時点で「最終書き出し日時」を更新し、変更フラグを下ろす。
+     */
+    private val backupStatusStore: BackupStatusStore? = null,
+    /** 現在時刻 (テスト差し替え用) */
+    private val nowSeconds: () -> Long = { System.currentTimeMillis() / 1000 }
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(BackupUiState())
@@ -74,6 +83,24 @@ class BackupViewModel(
 
     /** 書き出し用の既定ファイル名 */
     fun suggestedFileName(): String = backupRepository.defaultFileName()
+
+    /**
+     * 最終書き出し日時の表示 (Issue #108)。
+     *
+     * 一度も書き出していない場合は「まだ書き出していません」と明示する。
+     * 書き出し状況を記録していない場合 (null) は null を返し、画面は何も出さない。
+     */
+    fun lastExportedLabel(): String? {
+        val status = backupStatusStore?.status?.value ?: return null
+        if (!status.hasExported) return NEVER_EXPORTED_LABEL
+        return runCatching {
+            val formatter = java.text.SimpleDateFormat(
+                LAST_EXPORTED_PATTERN,
+                java.util.Locale.getDefault()
+            )
+            formatter.format(java.util.Date(status.lastExportedAtSec * 1000))
+        }.getOrNull()?.let { "最終書き出し: $it" }
+    }
 
     /** 現在のデータを JSON にして [output] へ書く */
     fun export(output: OutputStream) {
@@ -88,6 +115,9 @@ class BackupViewModel(
                     output.use { it.write(json.toByteArray(Charsets.UTF_8)) }
                 }
                 val summary = data.summary
+                // 書き出しに成功した時点で記録する (Issue #108)。
+                // 失敗時は更新しないため、リマインドは出続ける
+                backupStatusStore?.markExported(nowSeconds())
                 _uiState.update {
                     it.copy(
                         isExporting = false,
@@ -307,6 +337,12 @@ class BackupViewModel(
 
         /** 日時が分からないときの表示 */
         private const val UNKNOWN_EXPORTED_AT = "不明"
+
+        /** 最終書き出し日時の書式 (Issue #108) */
+        private const val LAST_EXPORTED_PATTERN = "yyyy/MM/dd HH:mm"
+
+        /** 一度も書き出していないときの表示 (Issue #108) */
+        private const val NEVER_EXPORTED_LABEL = "まだ書き出していません"
 
         /** エラーダイアログの既定の見出し */
         const val DEFAULT_ERROR_TITLE = "読み込めませんでした"

@@ -4,6 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tonbiattack.fastestpictureviewer.core.util.FolderNames
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
+import com.tonbiattack.fastestpictureviewer.data.BackupReminder
+import com.tonbiattack.fastestpictureviewer.data.BackupStatus
+import com.tonbiattack.fastestpictureviewer.data.BackupStatusStore
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FolderSummaryRow
 import com.tonbiattack.fastestpictureviewer.data.FolderTagNameRow
@@ -145,7 +148,18 @@ data class FolderListUiState(
      * メディア再スキャンを案内すべきか (Issue #86)。
      * 全件走査が成功したのに変化が無いときだけ true になる。
      */
-    val suggestRescan: Boolean = false
+    val suggestRescan: Boolean = false,
+
+    /**
+     * バックアップの書き出しを促すか (Issue #108)。
+     *
+     * 変更があり、かつ前回の書き出しから一定期間経ったときだけ true。
+     * 起動をブロックしない控えめなバナーで出す。
+     */
+    val suggestBackup: Boolean = false,
+
+    /** バックアップのリマインド本文。表示しないときは null */
+    val backupReminderMessage: String? = null
 ) {
     /** 同期中でまだ 1 件も無い場合に初回スキャン表示を出す */
     val showInitialScanProgress: Boolean get() = isSyncing && !hasFolders
@@ -195,6 +209,19 @@ private data class UiContext(
 }
 
 /**
+ * 一覧の骨格に影響しない付加情報 (Issue #80 / #86 / #108)。
+ *
+ * これらが変わっても一覧の並びは変わらないが、バナーの表示が変わる。
+ */
+private data class BackupExtras(
+    val showResumeCard: Boolean,
+    val staleImageCount: Long,
+    val rescanDismissed: Boolean,
+    val backupStatus: BackupStatus,
+    val backupSnoozedUntilSec: Long
+)
+
+/**
  * フォルダ一覧の ViewModel。
  *
  * - Room の Flow をそのまま StateFlow にする。再取得中も直前の一覧を保持し続ける
@@ -205,7 +232,16 @@ private data class UiContext(
 class FolderListViewModel(
     private val repository: GalleryRepository,
     private val viewSettings: FolderViewSettings,
-    private val lastViewedStore: LastViewedStore
+    private val lastViewedStore: LastViewedStore,
+    /**
+     * バックアップの書き出し状況 (Issue #108)。null ならリマインドを出さない。
+     *
+     * 起動時に読むのは SharedPreferences の数値 2 つだけ。DB も MediaStore も触らないため、
+     * 一覧の初回表示を待たせない。
+     */
+    private val backupStatusStore: BackupStatusStore? = null,
+    /** 現在時刻 (テスト差し替え用) */
+    private val nowSeconds: () -> Long = { System.currentTimeMillis() / 1000 }
 ) : ViewModel() {
 
     /** 一覧の初回表示までの時間計測用 (JVM 単体テストでも動くよう System.nanoTime を使う) */
@@ -275,6 +311,17 @@ class FolderListViewModel(
     /** 利用者がメディア再スキャンの案内を閉じたか (Issue #86) */
     private val rescanHintDismissed = MutableStateFlow(false)
 
+    /**
+     * バックアップのリマインドを先送りした期限 (Issue #108)。0 なら先送りしていない。
+     *
+     * メモリ上だけに持つ。アプリを再起動すると期限が消えるが、
+     * 再起動のたびにバナーが出るのは煩わしいため、期限は SharedPreferences に置く。
+     */
+    private val backupSnoozedUntil = MutableStateFlow(0L)
+
+    /** バックアップの書き出し状況。null ならリマインドしない */
+    private val backupStatus = backupStatusStore?.status ?: MutableStateFlow(BackupStatus())
+
     init {
         StartupTrace.mark("vm_init_start")
         // 並び順が変わるたびに、その並び順の保存位置を読み直す
@@ -313,20 +360,31 @@ class FolderListViewModel(
                         combine(
                             viewSettings.showResumeCard,
                             staleImageCount,
-                            rescanHintDismissed
-                        ) { show, stale, dismissed -> Triple(show, stale, dismissed) }
-                    ) { filter, restore, resume, allTags, state ->
-                        val (showResumeCard, stale, dismissed) = state
+                            rescanHintDismissed,
+                            backupStatus,
+                            backupSnoozedUntil
+                        ) { show, stale, dismissed, backup, snoozed ->
+                            BackupExtras(
+                                showResumeCard = show,
+                                staleImageCount = stale,
+                                rescanDismissed = dismissed,
+                                backupStatus = backup,
+                                backupSnoozedUntilSec = snoozed
+                            )
+                        }
+                    ) { filter, restore, resume, allTags, extras ->
                         UiContext(
                             filter = filter,
                             restore = restore,
                             resume = resume,
-                            showResumeCard = showResumeCard
-                        ) to Triple(allTags, stale, dismissed)
+                            showResumeCard = extras.showResumeCard
+                        ) to (allTags to extras)
                     }
-                ) { data, status, columns, sortMode, contextAndTags ->
-                    val (context, extras) = contextAndTags
-                    val (allTags, staleCount, dismissed) = extras
+                ) { data, status, columns, sortMode, contextAndExtras ->
+                    val (context, extrasPair) = contextAndExtras
+                    val (allTags, extras) = extrasPair
+                    val staleCount = extras.staleImageCount
+                    val dismissed = extras.rescanDismissed
                     if (!firstFrameLogged && data.summaries.isNotEmpty()) {
                         firstFrameLogged = true
                         val elapsedMs = (System.nanoTime() - startedAtNanos) / 1_000_000
@@ -407,7 +465,18 @@ class FolderListViewModel(
                             removedCount = status.removedCount,
                             failedVolumeCount = status.failedVolumeCount,
                             hasFolders = allFolders.isNotEmpty()
-                        )
+                        ),
+                        // バックアップの書き出し忘れ防止 (Issue #108)。
+                        // 変更が無い・先送り中・前回から日が浅いときは出さない
+                        suggestBackup = shouldSuggestBackup(extras),
+                        backupReminderMessage = if (shouldSuggestBackup(extras)) {
+                            BackupReminder.message(
+                                status = extras.backupStatus,
+                                formattedLastExport = formatLastExport(extras.backupStatus)
+                            )
+                        } else {
+                            null
+                        }
                     )
                 }
             }
@@ -417,6 +486,50 @@ class FolderListViewModel(
                 started = SharingStarted.WhileSubscribed(5_000),
                 initialValue = FolderListUiState(isLoadingFirstFrame = true)
             )
+
+    /**
+     * バックアップのリマインドを出すべきか (Issue #108)。
+     *
+     * 判定は [BackupReminder] に任せ、ここでは現在時刻を渡すだけ。
+     * 起動時に DB も MediaStore も触らないため、一覧の初回表示を待たせない。
+     */
+    private fun shouldSuggestBackup(extras: BackupExtras): Boolean {
+        if (backupStatusStore == null) return false
+        return BackupReminder.shouldRemind(
+            status = extras.backupStatus,
+            nowSec = nowSeconds(),
+            snoozedUntilSec = extras.backupSnoozedUntilSec
+        )
+    }
+
+    /**
+     * 最終書き出し日時を画面用の文字列にする。一度も書き出していなければ null。
+     *
+     * 日時は端末のタイムゾーンで表示する。保存しているのはエポック秒なので、
+     * タイムゾーンが変わっても正しい時刻になる。
+     */
+    private fun formatLastExport(status: BackupStatus): String? {
+        if (!status.hasExported) return null
+        return runCatching {
+            val formatter = java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.getDefault())
+            formatter.format(java.util.Date(status.lastExportedAtSec * 1000))
+        }.getOrNull()
+    }
+
+    /**
+     * バックアップのリマインドを先送りする (Issue #108)。
+     *
+     * 次に出すまでの期限をメモリに持つ。アプリを再起動すると期限が消えるが、
+     * 再起動のたびにバナーが出るのは煩わしいため、期限は SharedPreferences に置く。
+     */
+    fun snoozeBackupReminder() {
+        backupSnoozedUntil.value = BackupReminder.snoozeUntil(nowSeconds())
+    }
+
+    /** バックアップ画面を開いたことを記録し、リマインドを閉じる (Issue #108) */
+    fun onBackupScreenOpened() {
+        backupSnoozedUntil.value = 0L
+    }
 
     private fun loadScrollRestore(mode: FolderSortMode) {
         restoreJob?.cancel()

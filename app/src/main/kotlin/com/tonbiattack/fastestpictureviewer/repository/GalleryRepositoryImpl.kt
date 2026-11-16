@@ -74,7 +74,15 @@ class GalleryRepositoryImpl(
      * 現在マウントされているボリューム名を返す (Issue #80)。
      * 既定では [MediaStoreScanner] に問い合わせる。テストで差し替えられるようにする。
      */
-    private val mountedVolumesProvider: () -> Set<String> = { scanner.mountedVolumes() }
+    private val mountedVolumesProvider: () -> Set<String> = { scanner.mountedVolumes() },
+    /**
+     * タグ・お気に入り・除外を変更したことを通知する (Issue #108)。
+     *
+     * バックアップの書き出し忘れを防ぐため、「前回の書き出し以降に変更があったか」を
+     * 記録する。閲覧操作では呼ばず、利用者が手で作ったデータを変えたときだけ呼ぶ。
+     * 既定は何もしない (テストの後方互換)。
+     */
+    private val onUserDataChanged: () -> Unit = {}
 ) : GalleryRepository {
 
     private val imageDao = db.imageItemDao()
@@ -594,6 +602,7 @@ class GalleryRepositoryImpl(
                     excludedAtSec = nowSeconds()
                 )
             )
+            onUserDataChanged()
         }
     }
 
@@ -601,6 +610,7 @@ class GalleryRepositoryImpl(
         // 画面を離れた直後でも解除が失われないよう、キャンセル不可で書き込む
         withContext(Dispatchers.IO + NonCancellable) {
             excludedFolderDao.remove(folderKey)
+            onUserDataChanged()
         }
     }
 
@@ -627,6 +637,7 @@ class GalleryRepositoryImpl(
             } else {
                 favoriteFolderDao.remove(folderKey)
             }
+            onUserDataChanged()
         }
     }
 
@@ -702,6 +713,7 @@ class GalleryRepositoryImpl(
             } else {
                 favoriteDao.remove(itemId)
             }
+            onUserDataChanged()
         }
     }
 
@@ -739,6 +751,7 @@ class GalleryRepositoryImpl(
                     FolderTagEntity(folderKey = folderKey, tagId = tagId, addedAtSec = now)
                 )
             }
+            onUserDataChanged()
         }
     }
 
@@ -754,6 +767,7 @@ class GalleryRepositoryImpl(
                 }
             }
             links.chunked(TAG_LINK_CHUNK_SIZE).forEach { chunk -> tagDao.addLinks(chunk) }
+            onUserDataChanged()
         }
     }
 
@@ -766,6 +780,7 @@ class GalleryRepositoryImpl(
                 false
             } else {
                 tagDao.rename(tagId, displayName, normalizedName)
+                onUserDataChanged()
                 true
             }
         }
@@ -774,6 +789,7 @@ class GalleryRepositoryImpl(
     override suspend fun deleteTag(tagId: Long) {
         withContext(Dispatchers.IO + NonCancellable) {
             tagDao.deleteTag(tagId)
+            onUserDataChanged()
         }
     }
 
