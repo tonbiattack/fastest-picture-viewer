@@ -84,6 +84,7 @@ import com.tonbiattack.fastestpictureviewer.core.permission.MediaAccessLevel
 import com.tonbiattack.fastestpictureviewer.data.TagWithCount
 import com.tonbiattack.fastestpictureviewer.perf.StartupTrace
 import com.tonbiattack.fastestpictureviewer.repository.MediaRescanHint
+import com.tonbiattack.fastestpictureviewer.ui.components.ActiveFavoritesFilterBar
 import com.tonbiattack.fastestpictureviewer.ui.components.CompactSearchBar
 import com.tonbiattack.fastestpictureviewer.ui.components.FastScroller
 import com.tonbiattack.fastestpictureviewer.ui.components.ScrollToTopButton
@@ -461,6 +462,14 @@ fun FolderListScreen(
                         filter = state.tagFilter,
                         tags = state.allTags,
                         onClear = viewModel::clearTagFilter
+                    )
+                }
+                // お気に入りのみ表示中は、解除できることをはっきり示す。
+                // ヘッダーの星は小さく、絞り込み中だと気づかずに戻れないことがあった
+                if (state.favoritesOnly) {
+                    ActiveFavoritesFilterBar(
+                        count = state.folders.size,
+                        onClear = viewModel::toggleFavoritesOnly
                     )
                 }
             }
