@@ -24,5 +24,10 @@ captures/
 *.keystore
 keystore.properties
 
+# ストア掲載素材のうち、スクリプトで再生成できるもの (Issue #121)。
+# スクリーンショットは端末で撮るため、再生成できないのでコミットする
+store/sample-images/
+store/icon-1024.png
+
 # AI エージェントのローカル状態
 .commandcode/
