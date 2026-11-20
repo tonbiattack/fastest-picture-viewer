@@ -45,7 +45,11 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.tonbiattack.fastestpictureviewer"
+        // ストア登録後は変更できないため、既定値は固定する。
+        // R8 有効ビルドの動作検証など、既存インストールと衝突させたくない場合だけ
+        // -Pfpv.applicationIdSuffix=.r8check のように接尾辞を付けて別アプリとして入れる
+        val appIdSuffix = (findProperty("fpv.applicationIdSuffix") as String?) ?: ""
+        applicationId = "com.tonbiattack.fastestpictureviewer$appIdSuffix"
         // RELATIVE_PATH / ボリューム別クエリを使うため Android 10 (API 29) 以上を対象とする
         minSdk = 29
         targetSdk = 36
@@ -75,6 +79,16 @@ android {
                 "PERF_TRACE",
                 ((findProperty("fpv.perfTrace") as String?)?.toBoolean() ?: true).toString()
             )
+            // R8 有効ビルドの動作検証用 (Issue #121)。
+            // リリース署名と debug 署名は互換がないため、実機で上書き検証するときは
+            // -Pfpv.minifyDebug=true で debug 署名のまま R8 を掛ける
+            if ((findProperty("fpv.minifyDebug") as String?)?.toBoolean() == true) {
+                isMinifyEnabled = true
+                proguardFiles(
+                    getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro"
+                )
+            }
         }
         release {
             isMinifyEnabled = true
