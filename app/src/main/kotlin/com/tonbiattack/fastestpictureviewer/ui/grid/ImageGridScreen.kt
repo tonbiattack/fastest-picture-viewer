@@ -67,6 +67,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.tonbiattack.fastestpictureviewer.R
 import com.tonbiattack.fastestpictureviewer.core.image.toImageRequest
+import com.tonbiattack.fastestpictureviewer.ui.components.ActiveFavoritesFilterBar
 import com.tonbiattack.fastestpictureviewer.ui.components.CompactSearchBar
 import com.tonbiattack.fastestpictureviewer.ui.components.FastScroller
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -213,6 +214,14 @@ fun ImageGridScreen(
                         placeholder = "ファイル名で検索",
                         focusRequestKey = searchFocusRequest,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                    )
+                }
+                // お気に入りのみ表示中は、解除できることをはっきり示す。
+                // ヘッダーの星は小さく、絞り込み中だと気づかずに戻れないことがあった
+                if (state.favoritesOnly) {
+                    ActiveFavoritesFilterBar(
+                        count = state.images.size,
+                        onClear = viewModel::toggleFavoritesOnly
                     )
                 }
             }

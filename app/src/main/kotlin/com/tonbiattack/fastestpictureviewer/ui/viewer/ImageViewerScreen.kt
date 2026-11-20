@@ -155,7 +155,17 @@ fun ImageViewerScreen(
     val currentImage = state.images.getOrNull(currentIndex)
 
     val closeViewer: () -> Unit = {
-        onBack(state.images.getOrNull(pagerState.currentPage)?.id, pagerState.currentPage)
+        // 戻る先の画像は「実際に表示が確定したページ」で決める。
+        //
+        // `currentPage` はスワイプ中に先行して切り替わるため、素早く戻ると
+        // まだ表示していない次のページの ID を返してしまう。一覧に戻った直後に
+        // その画像へスクロールし、「前に見ていた画像」が出たように見える。
+        val page = ViewerExitPage.resolve(
+            settledPage = pagerState.settledPage,
+            currentPage = pagerState.currentPage,
+            pageCount = state.images.size
+        )
+        onBack(state.images.getOrNull(page)?.id, page)
     }
 
     // 没入型表示中は戻る操作でまず通常表示に戻し、次の戻るで一覧へ返る
@@ -163,9 +173,11 @@ fun ImageViewerScreen(
         if (immersive) immersive = false else closeViewer()
     }
 
-    // 現在ページの変化を ViewModel に記録し、プロセス再生成後に復元できるようにする
+    // 現在ページの変化を ViewModel に記録し、プロセス再生成後に復元できるようにする。
+    // スワイプ中に先行して変わる `currentPage` ではなく、確定した `settledPage` を記録する。
+    // 途中で戻ったときに「まだ表示していないページ」を保存しないため。
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.currentPage }
+        snapshotFlow { pagerState.settledPage }
             .distinctUntilChanged()
             .collect { viewModel.onPageChanged(it) }
     }
