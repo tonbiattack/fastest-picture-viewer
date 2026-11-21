@@ -207,9 +207,12 @@ fun FolderListScreen(
             columnCount = state.columnCount,
             sortMode = state.sortMode,
             showResumeCard = state.showResumeCard,
+            showStaleMediaNotice = state.showStaleMediaNotice,
+            staleImageCount = state.staleImageCount,
             onColumnCountChange = viewModel::setColumnCount,
             onSortModeChange = viewModel::setSortMode,
             onShowResumeCardChange = viewModel::setShowResumeCard,
+            onShowStaleMediaNoticeChange = viewModel::setShowStaleMediaNotice,
             onDismiss = { showDisplaySettings = false }
         )
     }
@@ -571,8 +574,9 @@ fun FolderListScreen(
             }
 
             // 実体が見つからない画像の案内 (Issue #80)。
-            // 件数だけを出し、フォルダ名などの内容は表示しない
-            if (state.staleImageCount > 0L) {
+            // 件数だけを出し、フォルダ名などの内容は表示しない。
+            // 通知が不要な場合は設定で消せる (Issue #126)。検出・整理機能は止めない
+            if (state.showStaleMediaNotice && state.staleImageCount > 0L) {
                 StaleMediaBanner(
                     imageCount = state.staleImageCount,
                     onCleanup = { showCleanupDialog = true },
@@ -661,9 +665,12 @@ private fun DisplaySettingsDialog(
     columnCount: Int,
     sortMode: FolderSortMode,
     showResumeCard: Boolean,
+    showStaleMediaNotice: Boolean,
+    staleImageCount: Long,
     onColumnCountChange: (Int) -> Unit,
     onSortModeChange: (FolderSortMode) -> Unit,
     onShowResumeCardChange: (Boolean) -> Unit,
+    onShowStaleMediaNoticeChange: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -723,6 +730,42 @@ private fun DisplaySettingsDialog(
                     }
                     Switch(
                         checked = showResumeCard,
+                        // 行側で切り替えるため、スイッチ自身は表示専用にする
+                        onCheckedChange = null
+                    )
+                }
+
+                // 「見つからない画像」の通知の表示切り替え (Issue #126)。
+                // 通知を消しても検出・整理機能は止まらないことを明示する
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = showStaleMediaNotice,
+                            role = Role.Switch,
+                            onValueChange = onShowStaleMediaNoticeChange
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "「見つからない画像」の通知を表示",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            if (staleImageCount > 0L) {
+                                "現在 ${staleImageCount} 枚あります。" +
+                                    "オフにしても検出と整理の機能は使えます。"
+                            } else {
+                                "オフにしても検出と整理の機能は使えます。"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = showStaleMediaNotice,
                         // 行側で切り替えるため、スイッチ自身は表示専用にする
                         onCheckedChange = null
                     )
