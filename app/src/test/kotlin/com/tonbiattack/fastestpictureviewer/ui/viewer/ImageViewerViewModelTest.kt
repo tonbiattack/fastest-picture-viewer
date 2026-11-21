@@ -329,4 +329,136 @@ class ImageViewerViewModelTest {
         assertTrue(vm.uiState.value.startsWithLastImage)
         assertEquals(5, vm.uiState.value.initialIndex)
     }
+
+    // ---- スライドショー (Issue #124) ----
+
+    @Test
+    fun `初期状態は停止している`() = runTest {
+        val vm = ImageViewerViewModel(
+            FakeRepository(images(5)),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/"))
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        // 画面を開いた直後に勝手に再生が始まらないこと
+        assertEquals(SlideshowState.STOPPED, vm.slideshowState.value)
+    }
+
+    @Test
+    fun `開始すると再生中になる`() = runTest {
+        val vm = ImageViewerViewModel(
+            FakeRepository(images(5)),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/"))
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.startSlideshow()
+
+        assertEquals(SlideshowState.PLAYING, vm.slideshowState.value)
+    }
+
+    @Test
+    fun `画像が1枚以下なら開始しない`() = runTest {
+        val vm = ImageViewerViewModel(
+            FakeRepository(images(1)),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/"))
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.startSlideshow()
+
+        assertEquals(SlideshowState.STOPPED, vm.slideshowState.value)
+    }
+
+    @Test
+    fun `画像が空なら開始しない`() = runTest {
+        val vm = ImageViewerViewModel(
+            FakeRepository(emptyList()),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/"))
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.startSlideshow()
+
+        assertEquals(SlideshowState.STOPPED, vm.slideshowState.value)
+    }
+
+    @Test
+    fun `再生と一時停止を切り替えられる`() = runTest {
+        val vm = ImageViewerViewModel(
+            FakeRepository(images(5)),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/"))
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.toggleSlideshow()
+        assertEquals(SlideshowState.PLAYING, vm.slideshowState.value)
+
+        vm.toggleSlideshow()
+        assertEquals(SlideshowState.PAUSED, vm.slideshowState.value)
+
+        vm.toggleSlideshow()
+        assertEquals(SlideshowState.PLAYING, vm.slideshowState.value)
+    }
+
+    @Test
+    fun `停止すると停止状態になる`() = runTest {
+        val vm = ImageViewerViewModel(
+            FakeRepository(images(5)),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/"))
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.startSlideshow()
+        vm.stopSlideshow()
+
+        assertEquals(SlideshowState.STOPPED, vm.slideshowState.value)
+    }
+
+    @Test
+    fun `バックグラウンド移行で一時停止する`() = runTest {
+        val vm = ImageViewerViewModel(
+            FakeRepository(images(5)),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/"))
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.startSlideshow()
+        vm.onEnterBackground()
+
+        // 復帰時に意図せず再開しないよう、停止ではなく一時停止
+        assertEquals(SlideshowState.PAUSED, vm.slideshowState.value)
+    }
+
+    @Test
+    fun `停止中のバックグラウンド移行では状態が変わらない`() = runTest {
+        val vm = ImageViewerViewModel(
+            FakeRepository(images(5)),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/"))
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.onEnterBackground()
+
+        assertEquals(SlideshowState.STOPPED, vm.slideshowState.value)
+    }
+
+    @Test
+    fun `設定が無くても既定の間隔で動く`() = runTest {
+        val vm = ImageViewerViewModel(
+            FakeRepository(images(5)),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/"))
+        )
+
+        // slideshowSettings を渡さない場合でも落ちないこと
+        assertEquals(SlideshowInterval.DEFAULT, vm.slideshowInterval.value)
+    }
 }

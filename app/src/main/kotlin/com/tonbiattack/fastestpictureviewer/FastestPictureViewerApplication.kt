@@ -32,6 +32,8 @@ import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridViewModel
 import com.tonbiattack.fastestpictureviewer.ui.grid.SharedPreferencesImageGridViewSettings
 import com.tonbiattack.fastestpictureviewer.ui.navigation.FolderSequenceStore
 import com.tonbiattack.fastestpictureviewer.ui.viewer.ImageViewerViewModel
+import com.tonbiattack.fastestpictureviewer.ui.viewer.SharedPreferencesSlideshowSettings
+import com.tonbiattack.fastestpictureviewer.ui.viewer.SlideshowSettings
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.annotation.ExperimentalCoilApi
@@ -85,6 +87,9 @@ class AppContainer(
     /** フォルダ内画像グリッドの列数設定 */
     val imageGridViewSettings: ImageGridViewSettings = SharedPreferencesImageGridViewSettings(context)
 
+    /** スライドショーの表示間隔 (Issue #124) */
+    val slideshowSettings: SlideshowSettings = SharedPreferencesSlideshowSettings(context)
+
     /** 起動時の「前回の続き」用の最後の閲覧位置 */
     val lastViewedStore: LastViewedStore = SharedPreferencesLastViewedStore(context)
 
@@ -130,7 +135,12 @@ class AppContainer(
                 modelClass.isAssignableFrom(ImageGridViewModel::class.java) ->
                     ImageGridViewModel(repository, savedStateHandle, imageGridViewSettings)
                 modelClass.isAssignableFrom(ImageViewerViewModel::class.java) ->
-                    ImageViewerViewModel(repository, savedStateHandle, folderSequenceStore)
+                    ImageViewerViewModel(
+                        repository,
+                        savedStateHandle,
+                        folderSequenceStore,
+                        slideshowSettings
+                    )
                 modelClass.isAssignableFrom(AppViewModel::class.java) ->
                     AppViewModel(repository)
                 modelClass.isAssignableFrom(BackupViewModel::class.java) ->
