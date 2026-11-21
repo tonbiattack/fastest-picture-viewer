@@ -30,6 +30,7 @@ import com.tonbiattack.fastestpictureviewer.ui.favorites.FavoriteImagesViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.ExcludedFoldersScreen
 import com.tonbiattack.fastestpictureviewer.ui.folder.ExcludedFoldersViewModel
 import com.tonbiattack.fastestpictureviewer.ui.folder.FolderListScreen
+import com.tonbiattack.fastestpictureviewer.ui.help.HelpScreen
 import com.tonbiattack.fastestpictureviewer.ui.folder.FolderListViewModel
 import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridScreen
 import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridViewModel
@@ -73,6 +74,7 @@ object Routes {
     const val EXCLUDED_FOLDERS = "excluded-folders"
     const val FAVORITES = "favorites"
     const val BACKUP = "backup"
+    const val HELP = "help"
     const val IMAGE_GRID = "images/{folderKey}"
     const val IMAGE_VIEWER = "viewer/{folderKey}/{startIndex}?favoritesOnly={favoritesOnly}&fromEnd={fromEnd}"
 
@@ -158,6 +160,9 @@ fun AppNavHost(
                 onOpenBackup = {
                     navController.navigate(Routes.BACKUP)
                 },
+                onOpenHelp = {
+                    navController.navigate(Routes.HELP)
+                },
                 onExcludeFolder = { folder ->
                     scope.launch {
                         container.repository.excludeFolder(
@@ -214,6 +219,12 @@ fun AppNavHost(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() }
             )
+        }
+
+        // アプリ内ヘルプ・操作ガイド (Issue #127)。
+        // 完全オフラインで、ViewModel も DB も使わない
+        composable(Routes.HELP) {
+            HelpScreen(onBack = { navController.popBackStack() })
         }
 
         composable(Routes.FAVORITES) {
