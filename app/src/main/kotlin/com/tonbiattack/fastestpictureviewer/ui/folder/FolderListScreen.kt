@@ -111,6 +111,8 @@ fun FolderListScreen(
     onOpenFavorites: () -> Unit,
     onOpenExcludedFolders: () -> Unit,
     onOpenBackup: () -> Unit,
+    /** アプリ内ヘルプを開く (Issue #127) */
+    onOpenHelp: () -> Unit = {},
     onExcludeFolder: (FolderUiModel) -> Unit,
     onSetFolderFavorite: (FolderUiModel, Boolean) -> Unit,
     onOpenFolder: (FolderUiModel) -> Unit,
@@ -410,6 +412,14 @@ fun FolderListScreen(
                                     onClick = {
                                         topMenuExpanded = false
                                         onOpenBackup()
+                                    }
+                                )
+                                // アプリ内ヘルプ (Issue #127)。オフラインで読める
+                                DropdownMenuItem(
+                                    text = { Text("ヘルプ・操作ガイド") },
+                                    onClick = {
+                                        topMenuExpanded = false
+                                        onOpenHelp()
                                     }
                                 )
                             }
