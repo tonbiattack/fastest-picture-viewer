@@ -70,6 +70,9 @@ import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.imageLoader
@@ -80,6 +83,7 @@ import com.tonbiattack.fastestpictureviewer.core.image.toViewerImageRequest
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.perf.ViewerTrace
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -191,6 +195,50 @@ fun ImageViewerScreen(
         }
     }
 
+    // ---- スライドショー (Issue #124) ----
+
+    val slideshowState = viewModel.slideshowState.collectAsStateWithLifecycle().value
+    val slideshowInterval = viewModel.slideshowInterval.collectAsStateWithLifecycle().value
+
+    // バックグラウンドへ移行したら自動再生を止める。
+    // 復帰時に意図せず再開しないよう、停止ではなく一時停止にする
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                viewModel.onEnterBackground()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // 一定間隔で次へ進む。間隔を変えると LaunchedEffect が再起動し、
+    // 新しい間隔が次の待機から効く
+    LaunchedEffect(slideshowState, slideshowInterval, state.images.size) {
+        if (!SlideshowPaging.shouldAutoAdvance(slideshowState, state.images.size)) {
+            return@LaunchedEffect
+        }
+        while (true) {
+            delay(slideshowInterval.millis)
+            // 待機中に画像が減っている可能性があるため、毎回引き直す
+            val count = viewModel.uiState.value.images.size
+            val next = SlideshowPaging.next(pagerState.currentPage, count)
+                ?: break
+            if (count <= 1) break
+            pagerState.animateScrollToPage(next)
+        }
+    }
+
+    // スライドショー中は操作 UI を隠して画像を大きく見せる。
+    // 画面タップでいつでも出せるようにする
+    var slideshowControlsVisible by remember { mutableStateOf(true) }
+    LaunchedEffect(slideshowState) {
+        slideshowControlsVisible = true
+    }
+    val slideshowActive = slideshowState != SlideshowState.STOPPED
+    val hideChrome = immersive || (slideshowActive && !slideshowControlsVisible)
+
     // スワイプの応答を記録する (Issue #101)。ドラッグ開始からページ確定までを出す。
     // 計測用のフラグはコンポーズを起こさないよう、状態ではなく参照で持つ
     val swipeTracker = remember { SwipeTraceTracker() }
@@ -259,7 +307,7 @@ fun ImageViewerScreen(
         modifier = modifier.background(MaterialTheme.colorScheme.background),
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            if (!immersive) {
+            if (!hideChrome) {
                 TopAppBar(
                     title = {
                         if (state.images.isNotEmpty()) {
@@ -321,6 +369,28 @@ fun ImageViewerScreen(
                                     expanded = menuExpanded,
                                     onDismissRequest = { menuExpanded = false }
                                 ) {
+                                    // スライドショー (Issue #124)。画像が 2 枚以上で使える
+                                    if (state.images.size > 1) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    if (slideshowActive) {
+                                                        "スライドショーを停止"
+                                                    } else {
+                                                        "スライドショー"
+                                                    }
+                                                )
+                                            },
+                                            onClick = {
+                                                menuExpanded = false
+                                                if (slideshowActive) {
+                                                    viewModel.stopSlideshow()
+                                                } else {
+                                                    viewModel.startSlideshow()
+                                                }
+                                            }
+                                        )
+                                    }
                                     DropdownMenuItem(
                                         text = { Text("共有") },
                                         onClick = {
@@ -388,10 +458,18 @@ fun ImageViewerScreen(
                         image = image,
                         widthPx = width,
                         heightPx = height,
-                        onSingleTap = { immersive = !immersive }
+                        onSingleTap = {
+                            // スライドショー中は操作 UI の表示/非表示を切り替える。
+                            // 通常表示では従来どおり没入表示を切り替える
+                            if (slideshowActive) {
+                                slideshowControlsVisible = !slideshowControlsVisible
+                            } else {
+                                immersive = !immersive
+                            }
+                        }
                     )
                 }
-                if (!immersive && state.images.size > 1) {
+                if (!hideChrome && state.images.size > 1) {
                     val displayPage = if (isScrubbing) {
                         scrubValue.roundToInt().coerceIn(0, state.images.lastIndex)
                     } else {
@@ -412,6 +490,34 @@ fun ImageViewerScreen(
                                 .coerceIn(0, state.images.lastIndex)
                             isScrubbing = false
                             scope.launch { pagerState.scrollToPage(target) }
+                        }
+                    )
+                }
+                // スライドショー中は操作バーを出す。画面タップで表示/非表示を切り替える
+                if (slideshowActive && slideshowControlsVisible) {
+                    SlideshowControls(
+                        state = slideshowState,
+                        interval = slideshowInterval,
+                        onTogglePlay = viewModel::toggleSlideshow,
+                        onStop = viewModel::stopSlideshow,
+                        onIntervalChange = viewModel::setSlideshowInterval,
+                        onPrevious = {
+                            val target = SlideshowPaging.previous(
+                                pagerState.currentPage,
+                                state.images.size
+                            )
+                            if (target != null) {
+                                scope.launch { pagerState.animateScrollToPage(target) }
+                            }
+                        },
+                        onNext = {
+                            val target = SlideshowPaging.next(
+                                pagerState.currentPage,
+                                state.images.size
+                            )
+                            if (target != null) {
+                                scope.launch { pagerState.animateScrollToPage(target) }
+                            }
                         }
                     )
                 }

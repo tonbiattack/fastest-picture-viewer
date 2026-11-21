@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -42,7 +43,8 @@ data class ImageViewerUiState(
 class ImageViewerViewModel(
     private val repository: GalleryRepository,
     private val savedStateHandle: SavedStateHandle,
-    private val folderSequenceStore: FolderSequenceStore = FolderSequenceStore()
+    private val folderSequenceStore: FolderSequenceStore = FolderSequenceStore(),
+    private val slideshowSettings: SlideshowSettings? = null
 ) : ViewModel() {
 
     private val rawFolderKey: String = savedStateHandle.get<String>(KEY_FOLDER).orEmpty()
@@ -121,6 +123,67 @@ class ImageViewerViewModel(
     /** ページ移動時の位置保持 (プロセス再生成後に同じ画像を開く) */
     fun onPageChanged(index: Int) {
         savedStateHandle[KEY_PAGE] = index
+    }
+
+    // ---- スライドショー (Issue #124) ----
+
+    /**
+     * スライドショーの再生状態。
+     *
+     * 保存はしない。画面を開き直した直後に勝手に再生が始まらないよう、既定は停止。
+     */
+    private val _slideshowState = MutableStateFlow(SlideshowState.STOPPED)
+    val slideshowState: StateFlow<SlideshowState> = _slideshowState.asStateFlow()
+
+    /** 表示間隔。設定が無い場合は既定値で動く */
+    val slideshowInterval: StateFlow<SlideshowInterval> =
+        slideshowSettings?.interval ?: MutableStateFlow(SlideshowInterval.DEFAULT)
+
+    /** スライドショーを開始する。画像が 1 枚以下なら何もしない */
+    fun startSlideshow() {
+        if (uiState.value.images.size <= 1) return
+        _slideshowState.value = SlideshowState.PLAYING
+    }
+
+    /** 再生と一時停止を切り替える */
+    fun toggleSlideshow() {
+        _slideshowState.value = when (_slideshowState.value) {
+            SlideshowState.PLAYING -> SlideshowState.PAUSED
+            SlideshowState.STOPPED, SlideshowState.PAUSED -> {
+                if (uiState.value.images.size <= 1) {
+                    SlideshowState.STOPPED
+                } else {
+                    SlideshowState.PLAYING
+                }
+            }
+        }
+    }
+
+    /** 一時停止する（状態は保持し、再開できるようにする） */
+    fun pauseSlideshow() {
+        if (_slideshowState.value == SlideshowState.PLAYING) {
+            _slideshowState.value = SlideshowState.PAUSED
+        }
+    }
+
+    /** スライドショーを終了する。操作 UI も通常表示に戻す */
+    fun stopSlideshow() {
+        _slideshowState.value = SlideshowState.STOPPED
+    }
+
+    /**
+     * バックグラウンドへ移行したときに呼ぶ。
+     *
+     * 復帰時に意図せず再生が再開しないよう、停止ではなく一時停止にする。
+     * 利用者が明示的に再開したときだけ進む。
+     */
+    fun onEnterBackground() {
+        pauseSlideshow()
+    }
+
+    /** 表示間隔を変更して保存する。再生中なら次の切り替えから新しい間隔になる */
+    fun setSlideshowInterval(interval: SlideshowInterval) {
+        slideshowSettings?.setInterval(interval)
     }
 
     /**
