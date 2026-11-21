@@ -135,6 +135,13 @@ data class FolderListUiState(
     /** 「前回の続き」カードを表示するか (Issue #53) */
     val showResumeCard: Boolean = true,
 
+    /**
+     * 「見つからない画像」の通知バナーを表示するか (Issue #126)。
+     *
+     * OFF でも検出・集計・整理機能は止めない。バナーを出さないだけ。
+     */
+    val showStaleMediaNotice: Boolean = true,
+
     /** 表示中のフォルダキー (一覧と同じ順序)。ビューアの前後フォルダ移動に使う (Issue #57) */
     val visibleFolderKeys: List<String> = emptyList(),
 
@@ -215,6 +222,7 @@ private data class UiContext(
  */
 private data class BackupExtras(
     val showResumeCard: Boolean,
+    val showStaleMediaNotice: Boolean,
     val staleImageCount: Long,
     val rescanDismissed: Boolean,
     val backupStatus: BackupStatus,
@@ -359,17 +367,20 @@ class FolderListViewModel(
                         tagsFlow,
                         combine(
                             viewSettings.showResumeCard,
+                            viewSettings.showStaleMediaNotice,
                             staleImageCount,
-                            rescanHintDismissed,
-                            backupStatus,
-                            backupSnoozedUntil
-                        ) { show, stale, dismissed, backup, snoozed ->
+                            combine(rescanHintDismissed, backupStatus, backupSnoozedUntil) {
+                                    dismissed, backup, snoozed ->
+                                Triple(dismissed, backup, snoozed)
+                            }
+                        ) { show, showStale, stale, rest ->
                             BackupExtras(
                                 showResumeCard = show,
+                                showStaleMediaNotice = showStale,
                                 staleImageCount = stale,
-                                rescanDismissed = dismissed,
-                                backupStatus = backup,
-                                backupSnoozedUntilSec = snoozed
+                                rescanDismissed = rest.first,
+                                backupStatus = rest.second,
+                                backupSnoozedUntilSec = rest.third
                             )
                         }
                     ) { filter, restore, resume, allTags, extras ->
@@ -458,6 +469,7 @@ class FolderListViewModel(
                         tagFilter = context.filter.tagFilter,
                         allTags = allTags,
                         showResumeCard = context.showResumeCard,
+                        showStaleMediaNotice = extras.showStaleMediaNotice,
                         visibleFolderKeys = visibleFolders.map { it.folderKey },
                         staleImageCount = staleCount,
                         suggestRescan = !dismissed && MediaRescanHint.shouldSuggest(                            wasFullScan = status.wasFullScan,
@@ -741,6 +753,15 @@ class FolderListViewModel(
     /** 「前回の続き」カードの表示を切り替えて永続化する (Issue #53) */
     fun setShowResumeCard(show: Boolean) {
         viewSettings.setShowResumeCard(show)
+    }
+
+    /**
+     * 「見つからない画像」の通知バナーの表示を切り替えて永続化する (Issue #126)。
+     *
+     * バナーを出さないだけで、検出・集計・整理機能は止めない。
+     */
+    fun setShowStaleMediaNotice(show: Boolean) {
+        viewSettings.setShowStaleMediaNotice(show)
     }
 
     /** 並び順を変更して永続化する。切替前に現在の位置を保存する */

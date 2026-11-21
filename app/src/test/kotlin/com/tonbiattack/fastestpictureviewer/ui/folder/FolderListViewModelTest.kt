@@ -59,7 +59,8 @@ class FolderListViewModelTest {
     private class FakeViewSettings(
         initial: Int = 2,
         initialSortMode: FolderSortMode = FolderSortMode.LATEST,
-        initialShowResumeCard: Boolean = true
+        initialShowResumeCard: Boolean = true,
+        initialShowStaleMediaNotice: Boolean = true
     ) : FolderViewSettings {
         private val _columnCount = MutableStateFlow(initial)
         override val columnCount: StateFlow<Int> = _columnCount
@@ -69,6 +70,9 @@ class FolderListViewModelTest {
 
         private val _showResumeCard = MutableStateFlow(initialShowResumeCard)
         override val showResumeCard: StateFlow<Boolean> = _showResumeCard
+
+        private val _showStaleMediaNotice = MutableStateFlow(initialShowStaleMediaNotice)
+        override val showStaleMediaNotice: StateFlow<Boolean> = _showStaleMediaNotice
 
         override fun setColumnCount(count: Int) {
             _columnCount.value = count.coerceIn(1, 4)
@@ -80,6 +84,10 @@ class FolderListViewModelTest {
 
         override fun setShowResumeCard(show: Boolean) {
             _showResumeCard.value = show
+        }
+
+        override fun setShowStaleMediaNotice(show: Boolean) {
+            _showStaleMediaNotice.value = show
         }
     }
 

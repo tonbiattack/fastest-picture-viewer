@@ -100,4 +100,43 @@ class FolderViewSettingsTest {
         assertEquals(FolderSortMode.RECENT, settings.sortMode.value)
         assertFalse(settings.showResumeCard.value)
     }
+
+    // ---- 「見つからない画像」の通知設定 (Issue #126) ----
+
+    @Test
+    fun `見つからない画像の通知は既定で表示する`() {
+        // 既存ユーザーの動作を変えないこと
+        val settings = SharedPreferencesFolderViewSettings(context)
+
+        assertTrue(settings.showStaleMediaNotice.value)
+    }
+
+    @Test
+    fun `見つからない画像の通知設定は別インスタンスでも維持される`() {
+        val first = SharedPreferencesFolderViewSettings(context)
+        first.setShowStaleMediaNotice(false)
+        assertFalse(first.showStaleMediaNotice.value)
+
+        // アプリ再起動相当
+        val second = SharedPreferencesFolderViewSettings(context)
+        assertFalse(second.showStaleMediaNotice.value)
+
+        second.setShowStaleMediaNotice(true)
+        val third = SharedPreferencesFolderViewSettings(context)
+        assertTrue(third.showStaleMediaNotice.value)
+    }
+
+    @Test
+    fun `見つからない画像の通知設定は他の設定に影響しない`() {
+        val settings = SharedPreferencesFolderViewSettings(context)
+        settings.setColumnCount(3)
+        settings.setSortMode(FolderSortMode.RECENT)
+        settings.setShowResumeCard(false)
+        settings.setShowStaleMediaNotice(false)
+
+        assertEquals(3, settings.columnCount.value)
+        assertEquals(FolderSortMode.RECENT, settings.sortMode.value)
+        assertFalse(settings.showResumeCard.value)
+        assertFalse(settings.showStaleMediaNotice.value)
+    }
 }
