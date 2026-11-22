@@ -113,6 +113,16 @@ class HelpContentTest {
     }
 
     @Test
+    fun `画像一覧の並び順に言及している`() {
+        // Issue #130 で追加した並び順へ誘導できること
+        val section = HelpContent.SECTIONS.first { it.title.contains("画像一覧") }
+
+        assertTrue("名前順が書かれていない", section.body.contains("名前順"))
+        assertTrue("新しい順が書かれていない", section.body.contains("新しい順"))
+        assertTrue("古い順が書かれていない", section.body.contains("古い順"))
+    }
+
+    @Test
     fun `オフラインであることに言及している`() {
         val about = HelpContent.FAQ.first { it.title.contains("アプリについて") }
 

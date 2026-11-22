@@ -1,6 +1,7 @@
 package com.tonbiattack.fastestpictureviewer.repository
 
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
+import com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
@@ -37,8 +38,15 @@ interface GalleryRepository {
      */
     suspend fun rebuildFolderSummaryCache()
 
-    /** 指定フォルダの画像一覧を購読する */
-    fun observeImages(folderKey: String): Flow<List<ImageItem>>
+    /**
+     * 指定フォルダの画像一覧を購読する。
+     *
+     * @param sortMode 並び順。既定は名前順（既存の動作を変えない）
+     */
+    fun observeImages(
+        folderKey: String,
+        sortMode: ImageSortMode = ImageSortMode.DEFAULT
+    ): Flow<List<ImageItem>>
 
     /** 同期実行状態を購読する */
     val syncStatus: StateFlow<SyncStatus>

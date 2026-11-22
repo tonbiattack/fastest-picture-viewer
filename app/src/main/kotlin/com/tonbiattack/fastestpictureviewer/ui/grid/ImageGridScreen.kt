@@ -2,6 +2,8 @@ package com.tonbiattack.fastestpictureviewer.ui.grid
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -67,6 +69,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.tonbiattack.fastestpictureviewer.R
 import com.tonbiattack.fastestpictureviewer.core.image.toImageRequest
+import com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode
 import com.tonbiattack.fastestpictureviewer.ui.components.ActiveFavoritesFilterBar
 import com.tonbiattack.fastestpictureviewer.ui.components.CompactSearchBar
 import com.tonbiattack.fastestpictureviewer.ui.components.FastScroller
@@ -126,7 +129,9 @@ fun ImageGridScreen(
             portraitColumnCount = state.portraitColumnCount,
             landscapeColumnCount = state.landscapeColumnCount,
             isLandscape = isLandscape,
+            sortMode = state.sortMode,
             onColumnCountChange = viewModel::setColumnCount,
+            onSortModeChange = viewModel::setSortMode,
             onDismiss = { showDisplaySettings = false }
         )
     }
@@ -451,14 +456,41 @@ private fun ImageGridDisplaySettingsDialog(
     portraitColumnCount: Int,
     landscapeColumnCount: Int,
     isLandscape: Boolean,
+    sortMode: ImageSortMode,
     onColumnCountChange: (Int) -> Unit,
+    onSortModeChange: (ImageSortMode) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("表示設定") },
         text = {
-            Column {
+            // 小さい画面でも設定項目が切れないよう縦スクロール可能にする
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                // 並び順 (Issue #130)。名前順は従来の動作
+                Text("画像の並び順", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ImageSortMode.ALL.forEach { mode ->
+                        FilterChip(
+                            selected = sortMode == mode,
+                            onClick = { onSortModeChange(mode) },
+                            label = { Text(mode.label) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = when (sortMode) {
+                        ImageSortMode.NAME -> "ファイル名の自然順（1, 2, 10 の順）で並べます。"
+                        ImageSortMode.DATE_NEWEST -> "更新日時の新しい順で並べます。"
+                        ImageSortMode.DATE_OLDEST -> "更新日時の古い順で並べます。"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(16.dp))
+
                 Text(
                     text = if (isLandscape) "画像一覧の列数 (横向き)" else "画像一覧の列数 (縦向き)",
                     style = MaterialTheme.typography.bodyMedium
