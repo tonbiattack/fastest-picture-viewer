@@ -1067,4 +1067,72 @@ class FolderListViewModelTest {
         assertEquals(1, vm.uiState.value.folders.size)
         assertEquals(key, vm.uiState.value.folders.single().folderKey)
     }
+
+    // ---- 「見つからない画像」バナーのスワイプ (Issue #132) ----
+
+    @Test
+    fun `スワイプで見つからない画像のバナーを消せる`() = runTest {
+        val repo = FakeRepository()
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        // 既定では表示する
+        assertTrue(vm.uiState.value.showStaleMediaNotice)
+
+        vm.dismissStaleNotice()
+        advanceUntilIdle()
+
+        assertFalse("スワイプしても消えていない", vm.uiState.value.showStaleMediaNotice)
+    }
+
+    @Test
+    fun `手動更新するとスワイプで消したバナーが再表示される`() = runTest {
+        val repo = FakeRepository()
+        val vm = FolderListViewModel(repo, FakeViewSettings(), FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.dismissStaleNotice()
+        advanceUntilIdle()
+        assertFalse(vm.uiState.value.showStaleMediaNotice)
+
+        vm.onManualRefreshStarted()
+        advanceUntilIdle()
+
+        // 更新後は件数が変わっている可能性があるため、改めて知らせる
+        assertTrue("手動更新しても再表示されない", vm.uiState.value.showStaleMediaNotice)
+    }
+
+    @Test
+    fun `設定で通知をオフにするとスワイプ状態に関係なく表示しない`() = runTest {
+        val repo = FakeRepository()
+        val settings = FakeViewSettings(initialShowStaleMediaNotice = false)
+        val vm = FolderListViewModel(repo, settings, FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertFalse(vm.uiState.value.showStaleMediaNotice)
+
+        // 手動更新しても、設定がオフなら出さない
+        vm.onManualRefreshStarted()
+        advanceUntilIdle()
+
+        assertFalse("設定がオフなのに表示している", vm.uiState.value.showStaleMediaNotice)
+    }
+
+    @Test
+    fun `スワイプで消しても設定は変わらない`() = runTest {
+        val repo = FakeRepository()
+        val settings = FakeViewSettings()
+        val vm = FolderListViewModel(repo, settings, FakeLastViewedStore())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.dismissStaleNotice()
+        advanceUntilIdle()
+
+        // スワイプは今回の表示だけを控えめにする操作で、永続設定は変えない
+        assertTrue("設定が書き換わっている", settings.showStaleMediaNotice.value)
+    }
 }

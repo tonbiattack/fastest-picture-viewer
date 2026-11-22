@@ -224,6 +224,8 @@ private data class BackupExtras(
     val showResumeCard: Boolean,
     val showStaleMediaNotice: Boolean,
     val staleImageCount: Long,
+    /** スワイプでバナーを消したか (Issue #132) */
+    val staleNoticeDismissed: Boolean,
     val rescanDismissed: Boolean,
     val backupStatus: BackupStatus,
     val backupSnoozedUntilSec: Long
@@ -316,6 +318,14 @@ class FolderListViewModel(
     /** 実体が見つからない画像の件数 (Issue #80)。画面表示用 */
     private val staleImageCount = MutableStateFlow(0L)
 
+    /**
+     * 利用者が「見つからない画像」のバナーをスワイプで消したか (Issue #132)。
+     *
+     * メモリ上だけに持つ。次に手動更新したときに false へ戻し、再び表示する。
+     * 設定で通知自体をオフにしている場合とは別扱い（そちらは永続化する）。
+     */
+    private val staleNoticeDismissed = MutableStateFlow(false)
+
     /** 利用者がメディア再スキャンの案内を閉じたか (Issue #86) */
     private val rescanHintDismissed = MutableStateFlow(false)
 
@@ -369,15 +379,17 @@ class FolderListViewModel(
                             viewSettings.showResumeCard,
                             viewSettings.showStaleMediaNotice,
                             staleImageCount,
+                            staleNoticeDismissed,
                             combine(rescanHintDismissed, backupStatus, backupSnoozedUntil) {
                                     dismissed, backup, snoozed ->
                                 Triple(dismissed, backup, snoozed)
                             }
-                        ) { show, showStale, stale, rest ->
+                        ) { show, showStale, stale, staleDismissed, rest ->
                             BackupExtras(
                                 showResumeCard = show,
                                 showStaleMediaNotice = showStale,
                                 staleImageCount = stale,
+                                staleNoticeDismissed = staleDismissed,
                                 rescanDismissed = rest.first,
                                 backupStatus = rest.second,
                                 backupSnoozedUntilSec = rest.third
@@ -469,7 +481,9 @@ class FolderListViewModel(
                         tagFilter = context.filter.tagFilter,
                         allTags = allTags,
                         showResumeCard = context.showResumeCard,
-                        showStaleMediaNotice = extras.showStaleMediaNotice,
+                        // 設定でオフ、またはスワイプで消した場合はバナーを出さない (Issue #126 / #132)
+                        showStaleMediaNotice = extras.showStaleMediaNotice &&
+                            !extras.staleNoticeDismissed,
                         visibleFolderKeys = visibleFolders.map { it.folderKey },
                         staleImageCount = staleCount,
                         suggestRescan = !dismissed && MediaRescanHint.shouldSuggest(                            wasFullScan = status.wasFullScan,
@@ -743,11 +757,24 @@ class FolderListViewModel(
     }
 
     /**
+     * 「見つからない画像」のバナーをスワイプで消す (Issue #132)。
+     *
+     * 設定を変えるのではなく、今回の表示だけを控えめにする。
+     * 次に手動更新したときに再び表示する。
+     */
+    fun dismissStaleNotice() {
+        staleNoticeDismissed.value = true
+    }
+
+    /**
      * 手動更新を開始したことを記録する (Issue #86)。
      * 閉じていた案内を再表示し、更新結果を改めて確認できるようにする。
      */
     fun onManualRefreshStarted() {
         rescanHintDismissed.value = false
+        // スワイプで消した「見つからない画像」のバナーも再表示する (Issue #132)。
+        // 更新後は件数が変わっている可能性があるため、改めて知らせる
+        staleNoticeDismissed.value = false
     }
 
     /** 「前回の続き」カードの表示を切り替えて永続化する (Issue #53) */
