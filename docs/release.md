@@ -27,11 +27,40 @@ git pull --ff-only origin main
 
 `versionCode` は**前回のリリースより必ず大きく**する。`versionName` は表示用。
 
-| 変更内容 | 上げ方の例 |
-| --- | --- |
-| 不具合修正のみ | `0.1.0` → `0.1.1`（versionCode +1） |
-| 機能追加 | `0.1.1` → `0.2.0`（versionCode +1） |
-| 大きな変更 | `0.2.0` → `1.0.0`（versionCode +1） |
+| 変更内容 | 上げ方の例 | versionCode |
+| --- | --- | --- |
+| 不具合修正のみ | `0.2.0` → `0.2.1` | 200 → 201 |
+| 機能追加 | `0.2.1` → `0.3.0` | 201 → 300 |
+| 大きな変更 | `0.3.0` → `1.0.0` | 300 → 10000 |
+
+### Obtainium で更新を届けるために
+
+利用者は Obtainium で GitHub Releases から更新している。
+Obtainium は次の 2 つを見て更新を判定するため、**両方を変える必要がある**。
+
+1. **リリースのタグ**（`v0.2.1`）から得たバージョン文字列
+2. **APK の versionCode**
+
+タグだけ切って versionCode が同じでも、versionCode だけ上げてタグを切らなくても、
+利用者には更新が届かない。
+
+### バージョンの上げ方
+
+`scripts\bump-version.ps1` を使う。versionCode の計算と整合性の確認をまとめて行う。
+
+```powershell
+# 現在のバージョンを確認
+powershell -ExecutionPolicy Bypass -File scripts\bump-version.ps1
+
+# 上げる（patch / minor / major）
+powershell -ExecutionPolicy Bypass -File scripts\bump-version.ps1 -Part patch
+
+# 直接指定する
+powershell -ExecutionPolicy Bypass -File scripts\bump-version.ps1 -Set 0.3.0
+```
+
+`versionCode` は `major*10000 + minor*100 + patch` で自動計算される
+（`app/build.gradle.kts` の `versionCodeOf` と `.github/workflows/release.yml` が同じ式）。
 
 ```powershell
 git tag --list          # 既存タグの確認
@@ -54,8 +83,15 @@ keyPassword=***
 
 ## 4. リリース APK をビルドする
 
+通常はタグを push すれば GitHub Actions がビルドして Release に添付する（`release.yml`）。
+手元で確認したいときだけ、次のようにビルドする。
+
 ```powershell
-.\gradlew.bat :app:assembleRelease "-Pfpv.versionCode=2" "-Pfpv.versionName=0.2.0"
+# 既定値（build.gradle.kts の defaultVersionName）でビルド
+.\gradlew.bat :app:assembleRelease
+
+# バージョンを明示する場合
+.\gradlew.bat :app:assembleRelease "-Pfpv.versionCode=201" "-Pfpv.versionName=0.2.1"
 ```
 
 出力: `app\build\outputs\apk\release\app-release.apk`
@@ -180,6 +216,7 @@ MIT License
 | バージョン | 日付 | 内容 |
 | --- | --- | --- |
 | v0.1.0 | 2026-11-14 | 初回リリース。主要機能一式 |
+| v0.2.0 | 2026-11-15 | バックアップ・復元、初回起動時の復元案内 |
 
 - リリースページ: <https://github.com/tonbiattack/fastest-picture-viewer/releases/tag/v0.1.0>
 - 成果物: `Pictobi-0.1.0.apk`（3,770,211 bytes）
