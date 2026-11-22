@@ -94,6 +94,14 @@ class HelpContentTest {
     }
 
     @Test
+    fun `見つからない画像のバナーをスワイプで消せることに言及している`() {
+        // Issue #132 で追加した操作へ誘導できること
+        val faq = HelpContent.FAQ.first { it.title.contains("見つからない画像") }
+
+        assertTrue("スワイプの説明が無い", faq.body.contains("スワイプ"))
+    }
+
+    @Test
     fun `スライドショーの間隔が実装と一致する`() {
         // SlideshowInterval の選択肢（1/2/3/5/10/15/30 秒、初期値 3 秒）と揃えること
         val section = HelpContent.SECTIONS.first { it.title.contains("スライドショー") }

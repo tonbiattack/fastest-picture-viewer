@@ -1,5 +1,28 @@
 package com.tonbiattack.fastestpictureviewer.ui.folder
 
+import kotlin.math.roundToInt
+
+import kotlin.math.abs
+
+import kotlinx.coroutines.launch
+
+import androidx.compose.ui.unit.IntOffset
+
+import androidx.compose.ui.platform.LocalDensity
+
+import androidx.compose.foundation.layout.offset
+
+import androidx.compose.runtime.rememberCoroutineScope
+
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+
+import androidx.compose.animation.core.tween
+
+import androidx.compose.animation.core.spring
+
+import androidx.compose.animation.core.Animatable
+
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -590,6 +613,7 @@ fun FolderListScreen(
                 StaleMediaBanner(
                     imageCount = state.staleImageCount,
                     onCleanup = { showCleanupDialog = true },
+                    onDismiss = viewModel::dismissStaleNotice,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(16.dp)
@@ -1455,15 +1479,47 @@ private fun BackupReminderBanner(
  *
  * 件数だけを表示し、フォルダ名やファイル名は出さない。
  * 「整理する」で DB の登録情報だけを片付ける (写真そのものは消さない)。
+ *
+ * 横にスワイプすると、今回の表示だけを消せる (Issue #132)。
+ * 設定を変えるわけではないので、次に手動更新すると再び表示される。
  */
 @Composable
 private fun StaleMediaBanner(
     imageCount: Long,
     onCleanup: () -> Unit,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // スワイプ中の横移動量。離したときに閾値を超えていれば消す
+    val offsetX = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val dismissThresholdPx = with(LocalDensity.current) { SWIPE_DISMISS_THRESHOLD.toPx() }
+
     Surface(
-        modifier = modifier,
+        modifier = modifier
+            .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+            .pointerInput(imageCount) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (abs(offsetX.value) >= dismissThresholdPx) {
+                            // 画面外へ流してから消す。唐突に消えるより意図が伝わる
+                            val target = if (offsetX.value > 0) size.width.toFloat() else -size.width.toFloat()
+                            scope.launch {
+                                offsetX.animateTo(target, tween(durationMillis = 160))
+                                onDismiss()
+                            }
+                        } else {
+                            // 閾値未満なら元の位置へ戻す
+                            scope.launch { offsetX.animateTo(0f, spring()) }
+                        }
+                    },
+                    onHorizontalDrag = { _, dragAmount ->
+                        scope.launch {
+                            offsetX.snapTo(offsetX.value + dragAmount)
+                        }
+                    }
+                )
+            },
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.secondaryContainer,
         tonalElevation = 4.dp
@@ -1489,3 +1545,11 @@ private fun StaleMediaBanner(
         }
     }
 }
+
+/**
+ * バナーをスワイプで消すと判定する横移動量 (Issue #132)。
+ *
+ * 画面幅の 1/4 程度を目安にしつつ、小さい画面でも操作しやすいよう下限を設ける。
+ * 誤操作で消えないよう、軽く触れただけでは消さない。
+ */
+private val SWIPE_DISMISS_THRESHOLD = 96.dp
