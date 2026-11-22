@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.room.withTransaction
 import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
+import com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode
 import com.tonbiattack.fastestpictureviewer.core.util.NaturalSortKey
 import com.tonbiattack.fastestpictureviewer.core.util.TagNames
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
@@ -243,8 +244,21 @@ class GalleryRepositoryImpl(
         }
     }
 
-    override fun observeImages(folderKey: String): Flow<List<ImageItem>> =
-        imageDao.observeImages(folderKey).map { items ->
+    override fun observeImages(
+        folderKey: String,
+        sortMode: ImageSortMode
+    ): Flow<List<ImageItem>> {
+        // 日時順は DAO 側で並べる。名前順だけは自然順キーの遅延生成を挟むため
+        // ここで並べ替える（既存の動作をそのまま保つ）
+        if (sortMode != ImageSortMode.NAME) {
+            val source = when (sortMode) {
+                ImageSortMode.DATE_NEWEST -> imageDao.observeImagesByDateDesc(folderKey)
+                ImageSortMode.DATE_OLDEST -> imageDao.observeImagesByDateAsc(folderKey)
+                ImageSortMode.NAME -> imageDao.observeImages(folderKey)
+            }
+            return source
+        }
+        return imageDao.observeImages(folderKey).map { items ->
             if (items.none { it.naturalSortKey.isEmpty() }) {
                 // バックフィル済みなら DAO のインデックス順をそのまま使う
                 items
@@ -269,6 +283,7 @@ class GalleryRepositoryImpl(
                 }
             }
         }
+    }
 
     /**
      * フォルダ内の画像を実際に開いて確認する (Issue #77)。

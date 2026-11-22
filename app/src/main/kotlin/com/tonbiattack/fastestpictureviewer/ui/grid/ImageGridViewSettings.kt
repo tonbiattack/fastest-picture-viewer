@@ -2,6 +2,7 @@ package com.tonbiattack.fastestpictureviewer.ui.grid
 
 import android.content.Context
 import androidx.core.content.edit
+import com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,6 +32,17 @@ interface ImageGridViewSettings {
 
     /** 現在の向きを変えずに、縦横それぞれの列数を復元する */
     fun restoreColumnCounts(portrait: Int, landscape: Int)
+
+    /**
+     * 画像一覧の並び順。
+     *
+     * フォルダごとではなく、画像一覧全体で 1 つの設定として持つ。
+     * 既定は名前順（既存の動作を変えない）。
+     */
+    val sortMode: StateFlow<ImageSortMode>
+
+    /** 並び順を保存して即時反映する */
+    fun setSortMode(mode: ImageSortMode)
 }
 
 /**
@@ -64,6 +76,11 @@ class SharedPreferencesImageGridViewSettings(context: Context) : ImageGridViewSe
 
     private val _columnCount = MutableStateFlow(_portraitColumnCount.value)
     override val columnCount: StateFlow<Int> = _columnCount.asStateFlow()
+
+    private val _sortMode = MutableStateFlow(
+        ImageSortMode.fromName(prefs.getString(KEY_SORT_MODE, null))
+    )
+    override val sortMode: StateFlow<ImageSortMode> = _sortMode.asStateFlow()
 
     init {
         // 移行結果を書き戻し、次回起動で旧キーに依存しないようにする
@@ -106,6 +123,11 @@ class SharedPreferencesImageGridViewSettings(context: Context) : ImageGridViewSe
         _columnCount.value = if (_isLandscape.value) landscapeCount else portraitCount
     }
 
+    override fun setSortMode(mode: ImageSortMode) {
+        prefs.edit { putString(KEY_SORT_MODE, mode.name) }
+        _sortMode.value = mode
+    }
+
     companion object {
         const val DEFAULT_COLUMN_COUNT = 3
         const val MIN_COLUMN_COUNT = 2
@@ -114,6 +136,7 @@ class SharedPreferencesImageGridViewSettings(context: Context) : ImageGridViewSe
         private const val PREFS_NAME = "image_grid_view_settings"
         private const val KEY_PORTRAIT_COLUMN_COUNT = "column_count_portrait"
         private const val KEY_LANDSCAPE_COLUMN_COUNT = "column_count_landscape"
+        private const val KEY_SORT_MODE = "sort_mode"
 
         /** 旧バージョン (Issue #34) の単一キー。移行の初期値としてのみ読む */
         private const val KEY_LEGACY_COLUMN_COUNT = "column_count"

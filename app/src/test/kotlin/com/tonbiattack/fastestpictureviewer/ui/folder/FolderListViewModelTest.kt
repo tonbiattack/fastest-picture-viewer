@@ -2,6 +2,7 @@ package com.tonbiattack.fastestpictureviewer.ui.folder
 
 import com.tonbiattack.fastestpictureviewer.core.util.FolderKeys
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
+import com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode
 import com.tonbiattack.fastestpictureviewer.core.util.TagNames
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
@@ -134,7 +135,10 @@ class FolderListViewModelTest {
             } else {
                 representativesFlow
             }
-        override fun observeImages(folderKey: String): Flow<List<ImageItem>> =
+        override fun observeImages(
+            folderKey: String,
+            sortMode: ImageSortMode
+        ): Flow<List<ImageItem>> =
             MutableStateFlow(emptyList())
 
         override suspend fun sync(mode: SyncMode, canDelete: Boolean): SyncResult =

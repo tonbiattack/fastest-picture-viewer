@@ -1,5 +1,7 @@
 package com.tonbiattack.fastestpictureviewer.ui.grid
 
+import com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode
+
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -112,5 +114,57 @@ class ImageGridViewSettingsTest {
 
         val settings = SharedPreferencesImageGridViewSettings(context)
         assertEquals(6, settings.portraitColumnCount.value)
+    }
+
+    // ---- 並び順 (Issue #130) ----
+
+    @Test
+    fun `並び順の既定は名前順`() {
+        val settings = SharedPreferencesImageGridViewSettings(context)
+
+        assertEquals(ImageSortMode.NAME, settings.sortMode.value)
+    }
+
+    @Test
+    fun `並び順は別インスタンスでも維持される`() {
+        val first = SharedPreferencesImageGridViewSettings(context)
+        first.setSortMode(ImageSortMode.DATE_NEWEST)
+        assertEquals(ImageSortMode.DATE_NEWEST, first.sortMode.value)
+
+        // アプリ再起動相当
+        val second = SharedPreferencesImageGridViewSettings(context)
+        assertEquals(ImageSortMode.DATE_NEWEST, second.sortMode.value)
+    }
+
+    @Test
+    fun `すべての並び順を保存できる`() {
+        ImageSortMode.ALL.forEach { mode ->
+            SharedPreferencesImageGridViewSettings(context).setSortMode(mode)
+            assertEquals(
+                mode,
+                SharedPreferencesImageGridViewSettings(context).sortMode.value
+            )
+        }
+    }
+
+    @Test
+    fun `並び順の保存値が壊れていても既定値にフォールバックする`() {
+        context.getSharedPreferences("image_grid_view_settings", Context.MODE_PRIVATE)
+            .edit()
+            .putString("sort_mode", "UNKNOWN")
+            .commit()
+
+        val settings = SharedPreferencesImageGridViewSettings(context)
+        assertEquals(ImageSortMode.NAME, settings.sortMode.value)
+    }
+
+    @Test
+    fun `並び順は列数に影響しない`() {
+        val settings = SharedPreferencesImageGridViewSettings(context)
+        settings.setColumnCount(5)
+        settings.setSortMode(ImageSortMode.DATE_OLDEST)
+
+        assertEquals(5, settings.columnCount.value)
+        assertEquals(ImageSortMode.DATE_OLDEST, settings.sortMode.value)
     }
 }

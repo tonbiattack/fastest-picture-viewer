@@ -175,6 +175,63 @@ interface ImageItemDao {
     )
     fun observeImages(folderKey: String): Flow<List<ImageItem>>
 
+    /**
+     * 指定フォルダの画像一覧を更新日時の新しい順で購読する。
+     *
+     * 同じ更新日時の画像が並ぶことがあるため、`mediaId` で順序を確定させる。
+     * 並び順の切り替えは呼び出し側で行い、このクエリは日時順専用にする
+     * （ORDER BY を引数で切り替えるとインデックスが効かなくなるため）。
+     */
+    @Query(
+        """
+        SELECT * FROM images
+        WHERE folderKey = :folderKey
+          AND NOT EXISTS (
+              SELECT 1 FROM excluded_folders AS excluded
+              WHERE excluded.volumeName = images.volumeName
+                AND (
+                    (excluded.relativePath = '' AND images.relativePath = '')
+                    OR (excluded.relativePath <> ''
+                        AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
+                )
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM unreadable_images AS unreadable
+              WHERE unreadable.itemId = images.id
+          )
+        ORDER BY dateModifiedSec DESC, mediaId ASC
+        """
+    )
+    fun observeImagesByDateDesc(folderKey: String): Flow<List<ImageItem>>
+
+    /**
+     * 指定フォルダの画像一覧を更新日時の古い順で購読する。
+     *
+     * [observeImagesByDateDesc] の逆順。同じ更新日時でも並びが安定するよう
+     * `mediaId` は昇順で固定する（単純な逆順にすると同日内で順序が入れ替わる）。
+     */
+    @Query(
+        """
+        SELECT * FROM images
+        WHERE folderKey = :folderKey
+          AND NOT EXISTS (
+              SELECT 1 FROM excluded_folders AS excluded
+              WHERE excluded.volumeName = images.volumeName
+                AND (
+                    (excluded.relativePath = '' AND images.relativePath = '')
+                    OR (excluded.relativePath <> ''
+                        AND substr(images.relativePath, 1, length(excluded.relativePath)) = excluded.relativePath)
+                )
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM unreadable_images AS unreadable
+              WHERE unreadable.itemId = images.id
+          )
+        ORDER BY dateModifiedSec ASC, mediaId ASC
+        """
+    )
+    fun observeImagesByDateAsc(folderKey: String): Flow<List<ImageItem>>
+
     /** 指定フォルダの画像一覧を一括取得する (差分計算用) */
     @Query("SELECT * FROM images WHERE folderKey = :folderKey")
     suspend fun getImages(folderKey: String): List<ImageItem>

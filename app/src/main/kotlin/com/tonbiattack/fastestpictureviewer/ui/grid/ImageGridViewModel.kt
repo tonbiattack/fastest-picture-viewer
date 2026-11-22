@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tonbiattack.fastestpictureviewer.core.util.FolderNames
+import com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
@@ -13,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -42,6 +44,8 @@ data class ImageGridUiState(
     val searchQuery: String = "",
     /** お気に入りのみ表示中か */
     val favoritesOnly: Boolean = false,
+    /** 画像一覧の並び順 (Issue #130) */
+    val sortMode: ImageSortMode = ImageSortMode.DEFAULT,
     /** 復元する先頭インデックス */
     val initialIndex: Int = 0,
     /** 復元する先頭アイテムのピクセルオフセット */
@@ -213,7 +217,11 @@ class ImageGridViewModel(
     }
 
     val uiState: StateFlow<ImageGridUiState> = combine(
-        repository.observeImages(folderKey.orEmpty()),
+        // 並び順を切り替えると購読先のクエリごと変わる (Issue #130)。
+        // flatMapLatest で古い購読を打ち切り、切り替え時に二重に流さない
+        viewSettings.sortMode.flatMapLatest { mode ->
+            repository.observeImages(folderKey.orEmpty(), mode)
+        },
         repository.syncStatus,
         repository.observeFavorites(),
         uiContext
@@ -242,6 +250,7 @@ class ImageGridViewModel(
             favoriteIds = favoriteIds,
             searchQuery = context.filter.query,
             favoritesOnly = context.filter.favoritesOnly,
+            sortMode = viewSettings.sortMode.value,
             initialIndex = if (context.isFiltered) {
                 0
             } else {
@@ -279,6 +288,25 @@ class ImageGridViewModel(
     /** お気に入りのみ表示を切り替える */
     fun toggleFavoritesOnly() {
         favoritesOnly.value = !favoritesOnly.value
+    }
+
+    /**
+     * 画像一覧の並び順を変更して永続化する (Issue #130)。
+     *
+     * 並び順が変わると画像の位置が変わるため、スクロール位置は先頭に戻す。
+     * 元の位置を保つと、別の画像を指したまま復元されてしまう。
+     */
+    fun setSortMode(mode: ImageSortMode) {
+        if (viewSettings.sortMode.value == mode) return
+        viewSettings.setSortMode(mode)
+        // 並び順ごとに保存された位置が別物になるため、復帰位置をリセットする
+        scrollRestore.value = ScrollRestore(
+            loaded = true,
+            anchorItemId = null,
+            fallbackIndex = 0,
+            offsetPx = 0
+        )
+        returnRequest.value += 1
     }
 
     /**

@@ -2,6 +2,7 @@ package com.tonbiattack.fastestpictureviewer.ui.viewer
 
 import androidx.lifecycle.SavedStateHandle
 import com.tonbiattack.fastestpictureviewer.core.util.FolderSortMode
+import com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode
 import com.tonbiattack.fastestpictureviewer.data.ExcludedFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteFolderEntity
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
@@ -55,7 +56,10 @@ class ImageViewerViewModelTest {
         override suspend fun rebuildFolderSummaryCache() = Unit
 
         override fun observeRepresentatives(): Flow<List<RepresentativeImageRow>> = MutableStateFlow(emptyList())
-        override fun observeImages(folderKey: String): Flow<List<ImageItem>> = MutableStateFlow(images)
+        override fun observeImages(
+            folderKey: String,
+            sortMode: ImageSortMode
+        ): Flow<List<ImageItem>> = MutableStateFlow(images)
 
         private val favoritesFlow = MutableStateFlow<List<FavoriteImageEntity>>(emptyList())
         override fun observeFavorites(): Flow<List<FavoriteImageEntity>> = favoritesFlow
