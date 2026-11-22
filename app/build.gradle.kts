@@ -1,5 +1,23 @@
 import java.util.Properties
 
+/**
+ * versionName から versionCode を求める。
+ *
+ * `major*10000 + minor*100 + patch` で単調増加させる。
+ * `.github/workflows/release.yml` の計算式と揃えること（片方だけ変えると
+ * タグ由来の versionCode と既定値がずれ、Obtainium が更新を検知できなくなる）。
+ *
+ * 例: 0.2.0 → 200、0.2.1 → 201、1.0.0 → 10000
+ */
+fun versionCodeOf(versionName: String): Int {
+    val parts = versionName.split(".")
+    require(parts.size == 3) { "versionName は major.minor.patch 形式にしてください: $versionName" }
+    val (major, minor, patch) = parts.map {
+        it.toIntOrNull() ?: error("versionName に数値でない部分があります: $versionName")
+    }
+    return major * 10000 + minor * 100 + patch
+}
+
 // アプリモジュールのビルド設定
 plugins {
     alias(libs.plugins.android.application)
@@ -53,9 +71,17 @@ android {
         // RELATIVE_PATH / ボリューム別クエリを使うため Android 10 (API 29) 以上を対象とする
         minSdk = 29
         targetSdk = 36
-        // リリース時は -Pfpv.versionCode=2 -Pfpv.versionName=0.2.0 のように上書きできる
-        versionCode = (findProperty("fpv.versionCode") as String?)?.toIntOrNull() ?: 1
-        versionName = (findProperty("fpv.versionName") as String?) ?: "0.1.0"
+        // バージョンは「コードを変更するたびに上げる」(AGENTS.md)。
+        // Obtainium がリリースのタグと APK の versionCode を見て更新を判定するため、
+        // 既定値も実際に配布している版に合わせておく。
+        //
+        // versionCode は major*10000 + minor*100 + patch で単調増加させる
+        // （.github/workflows/release.yml と同じ計算式）。
+        // リリース時は -Pfpv.versionCode=201 -Pfpv.versionName=0.2.1 のように上書きできる。
+        val defaultVersionName = "0.2.1"
+        versionName = (findProperty("fpv.versionName") as String?) ?: defaultVersionName
+        versionCode = (findProperty("fpv.versionCode") as String?)?.toIntOrNull()
+            ?: versionCodeOf(defaultVersionName)
         // 実機での Compose UI テスト (ピンチ操作など端末入力が必要な検証) 用
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

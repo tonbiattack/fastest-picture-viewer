@@ -47,6 +47,17 @@ Google Play と GitHub Releases の両方から入手できます。
 3. APK をタップしてインストール
 4. 起動して「写真と動画の閲覧」を許可
 
+### Obtainium で自動更新する
+
+[Obtainium](https://github.com/ImranR98/Obtainium) を使うと、新しいリリースが出たときに自動で更新できます。
+
+1. Obtainium で「アプリを追加」
+2. URL に `https://github.com/tonbiattack/fastest-picture-viewer` を入力
+3. ソースは自動で GitHub が選ばれる。そのまま追加する
+
+Obtainium はリリースのタグと APK の versionCode を見て更新を判定します。
+そのため、リリースごとに両方が上がります（[リリース手順](docs/release.md)）。
+
 > **注意:** Google Play 版と GitHub Releases 版は**署名が異なります**。
 > 一方から他方へ上書きインストールすることはできません。
 > 乗り換える場合は、先にバックアップを書き出してください（アンインストールでデータが消えます）。
