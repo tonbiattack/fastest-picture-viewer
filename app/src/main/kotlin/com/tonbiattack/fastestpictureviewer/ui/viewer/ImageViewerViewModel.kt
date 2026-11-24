@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tonbiattack.fastestpictureviewer.data.FavoriteImageEntity
 import com.tonbiattack.fastestpictureviewer.data.ImageItem
+import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridViewSettings
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import com.tonbiattack.fastestpictureviewer.ui.navigation.AdjacentFolders
 import com.tonbiattack.fastestpictureviewer.ui.navigation.FolderSequenceStore
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -44,7 +46,14 @@ class ImageViewerViewModel(
     private val repository: GalleryRepository,
     private val savedStateHandle: SavedStateHandle,
     private val folderSequenceStore: FolderSequenceStore = FolderSequenceStore(),
-    private val slideshowSettings: SlideshowSettings? = null
+    private val slideshowSettings: SlideshowSettings? = null,
+    /**
+     * 画像一覧の並び順 (Issue #137)。
+     *
+     * グリッドと同じ並び順で読まないと、グリッドで選んだ位置と
+     * ビューアが開く画像がずれる。null なら名前順（従来の動作）。
+     */
+    private val gridViewSettings: ImageGridViewSettings? = null
 ) : ViewModel() {
 
     private val rawFolderKey: String = savedStateHandle.get<String>(KEY_FOLDER).orEmpty()
@@ -85,7 +94,18 @@ class ImageViewerViewModel(
         if (favoritesOnly) {
             repository.observeFavoriteImages(favoriteFolderFilter)
         } else {
-            repository.observeImages(rawFolderKey)
+            // グリッドと同じ並び順で読む (Issue #137)。
+            // 並び順を渡さないと常に名前順になり、グリッドで選んだ位置とずれる
+            val sortModeFlow = gridViewSettings?.sortMode
+            if (sortModeFlow == null) {
+                repository.observeImages(rawFolderKey)
+            } else {
+                // @OptIn は flatMapLatest 自体に必要なため、呼び出し側で指定する
+                @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+                sortModeFlow.flatMapLatest { mode ->
+                    repository.observeImages(rawFolderKey, mode)
+                }
+            }
         }
 
     /** 連打時も最後の操作が勝つよう、DB 書き込みを直列化する */

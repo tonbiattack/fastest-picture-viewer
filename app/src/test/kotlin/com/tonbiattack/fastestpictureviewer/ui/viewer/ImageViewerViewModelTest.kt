@@ -21,6 +21,7 @@ import com.tonbiattack.fastestpictureviewer.repository.SyncResult
 import com.tonbiattack.fastestpictureviewer.repository.StaleCleanupResult
 import com.tonbiattack.fastestpictureviewer.repository.SyncStatus
 import com.tonbiattack.fastestpictureviewer.repository.UnreadableFolderSummary
+import com.tonbiattack.fastestpictureviewer.ui.grid.ImageGridViewSettings
 import com.tonbiattack.fastestpictureviewer.ui.navigation.FolderSequenceStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -464,5 +465,132 @@ class ImageViewerViewModelTest {
 
         // slideshowSettings を渡さない場合でも落ちないこと
         assertEquals(SlideshowInterval.DEFAULT, vm.slideshowInterval.value)
+    }
+
+    // ---- 画像一覧の並び順 (Issue #137) ----
+
+    /**
+     * 名前順と日時順で結果が変わる画像。
+     * `images()` は dateModifiedSec = index のため名前順と同じ並びになり、判別できない。
+     * ここでは更新日時を名前と逆順にして、3 つの並びがすべて異なるようにする。
+     */
+    private fun sortTestImages(): List<ImageItem> = images(5).mapIndexed { index, item ->
+        item.copy(dateModifiedSec = (100 - index).toLong())
+    }
+
+    @Test
+    fun `ビューアはグリッドと同じ並び順で画像を読む`() = runTest {
+        // グリッドが「古い順」で表示しているとき、ビューアも同じ順序で読むこと。
+        // ずれると、グリッドで選んだ位置と違う画像が開く
+        val all = sortTestImages()
+        val settings = FakeGridViewSettings(initial = ImageSortMode.DATE_OLDEST)
+        val vm = ImageViewerViewModel(
+            SortedFakeRepository(all),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/", "startIndex" to 0)),
+            gridViewSettings = settings
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        // 古い順 = dateModifiedSec 昇順。名前順とは異なる並びになる
+        assertEquals(
+            all.sortedBy { it.dateModifiedSec }.map { it.id },
+            vm.uiState.value.images.map { it.id }
+        )
+        assertNotEquals(
+            "並び順が名前順のままになっている",
+            all.map { it.id },
+            vm.uiState.value.images.map { it.id }
+        )
+    }
+
+    @Test
+    fun `並び順を変えるとビューアも追随する`() = runTest {
+        val all = sortTestImages()
+        val settings = FakeGridViewSettings(initial = ImageSortMode.NAME)
+        val vm = ImageViewerViewModel(
+            SortedFakeRepository(all),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/", "startIndex" to 0)),
+            gridViewSettings = settings
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(all.map { it.id }, vm.uiState.value.images.map { it.id })
+
+        settings.setSortMode(ImageSortMode.DATE_NEWEST)
+        advanceUntilIdle()
+
+        assertEquals(
+            all.sortedByDescending { it.dateModifiedSec }.map { it.id },
+            vm.uiState.value.images.map { it.id }
+        )
+    }
+
+    @Test
+    fun `グリッドで選んだ位置と同じ画像が開く`() = runTest {
+        // 不具合の再現条件そのもの。古い順で 3 番目を開いたら、古い順の 3 番目が出ること
+        val all = sortTestImages()
+        val sorted = all.sortedBy { it.dateModifiedSec }
+        val settings = FakeGridViewSettings(initial = ImageSortMode.DATE_OLDEST)
+        val vm = ImageViewerViewModel(
+            SortedFakeRepository(all),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/", "startIndex" to 2)),
+            gridViewSettings = settings
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.uiState.value
+        assertEquals(2, state.initialIndex)
+        assertEquals(
+            "グリッドの 3 番目とビューアの初期表示がずれている",
+            sorted[2].id,
+            state.images[state.initialIndex].id
+        )
+    }
+
+    @Test
+    fun `並び順の設定が無ければ名前順で読む`() = runTest {
+        // gridViewSettings を渡さない場合の後方互換
+        val all = sortTestImages()
+        val vm = ImageViewerViewModel(
+            SortedFakeRepository(all),
+            SavedStateHandle(mapOf("folderKey" to "v:Pictures/", "startIndex" to 0))
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(all.map { it.id }, vm.uiState.value.images.map { it.id })
+    }
+
+    /** 並び順に応じて返す順序を変える Fake。Issue #137 の確認用 */
+    private class SortedFakeRepository(private val images: List<ImageItem>) :
+        GalleryRepository by FakeRepository(images) {
+        override fun observeImages(
+            folderKey: String,
+            sortMode: ImageSortMode
+        ): Flow<List<ImageItem>> = MutableStateFlow(
+            when (sortMode) {
+                ImageSortMode.NAME -> images
+                ImageSortMode.DATE_NEWEST -> images.sortedByDescending { it.dateModifiedSec }
+                ImageSortMode.DATE_OLDEST -> images.sortedBy { it.dateModifiedSec }
+            }
+        )
+    }
+
+    /** 並び順だけを持つ Fake */
+    private class FakeGridViewSettings(initial: ImageSortMode) : ImageGridViewSettings {
+        private val _sortMode = MutableStateFlow(initial)
+        override val sortMode: StateFlow<ImageSortMode> = _sortMode
+        override val columnCount: StateFlow<Int> = MutableStateFlow(3)
+        override val portraitColumnCount: StateFlow<Int> = MutableStateFlow(3)
+        override val landscapeColumnCount: StateFlow<Int> = MutableStateFlow(3)
+        override fun setColumnCount(count: Int) = Unit
+        override fun setLandscape(isLandscape: Boolean) = Unit
+        override fun restoreColumnCounts(portrait: Int, landscape: Int) = Unit
+        override fun setSortMode(mode: ImageSortMode) {
+            _sortMode.value = mode
+        }
     }
 }
