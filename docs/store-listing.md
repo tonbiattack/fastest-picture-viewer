@@ -18,7 +18,7 @@ Play Console の各入力欄にそのまま貼り付けられる形でまとめ�
 | アプリ内課金 | なし |
 | 対応 OS | Android 10 (API 29) 以上 |
 | 連絡先メール | （オーナーが設定） |
-| プライバシーポリシー | `docs/privacy-policy.md` を公開した URL |
+| プライバシーポリシー | https://tonbiattack.github.io/fastest-picture-viewer/privacy.html |
 
 ## 2. 短い説明（80 文字以内）
 

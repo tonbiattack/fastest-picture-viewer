@@ -2,6 +2,12 @@
 
 最終更新日: 2026-11-20
 
+**公開 URL（Play Console に登録するもの）:**
+https://tonbiattack.github.io/fastest-picture-viewer/privacy.html
+
+公開用の HTML は `public/privacy.html`。この文書を更新したら、
+`public/privacy.html` も同じ内容に更新すること（付記は公開版に含めない）。
+
 Pictobi（以下「本アプリ」）は、個人が開発・提供する Android 向けの画像ビューアです。
 本ポリシーは、本アプリが扱う情報と、その取り扱いについて説明します。
 
