@@ -1,0 +1,57 @@
+# GitHub Pages へ公開用ファイルをデプロイする (Issue #136)。
+#
+# `public/` の中身だけを配信する。`docs/` には署名方針・リリース手順などの
+# 内部ドキュメントがあるため、ブランチ配信（/ や /docs をソースにする方式）は使わない。
+#
+# 公開 URL:
+#   https://tonbiattack.github.io/fastest-picture-viewer/privacy.html
+#
+# 公開するファイルを増やすときは public/ に置く（このワークフローがすべて配信する）。
+name: Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'public/**'
+      - '.github/workflows/pages.yml'
+  # 手動でも再デプロイできるようにする
+  workflow_dispatch:
+
+# Pages への配信は 1 つずつ行う
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy public/ to GitHub Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      # public/ の中身がそのままサイトのルートになる
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
