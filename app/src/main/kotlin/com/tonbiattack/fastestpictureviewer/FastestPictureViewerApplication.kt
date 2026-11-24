@@ -139,7 +139,9 @@ class AppContainer(
                         repository,
                         savedStateHandle,
                         folderSequenceStore,
-                        slideshowSettings
+                        slideshowSettings,
+                        // グリッドと同じ並び順で読む (Issue #137)
+                        imageGridViewSettings
                     )
                 modelClass.isAssignableFrom(AppViewModel::class.java) ->
                     AppViewModel(repository)
