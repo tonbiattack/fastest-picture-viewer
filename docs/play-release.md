@@ -29,7 +29,7 @@ Pictobi を Google Play で公開するための手順 (Issue #121)。
 | スクリーンショット (1200x1920 × 4) | `store/screenshots/` | 撮影済み（合成画像のみ） |
 | 掲載文（短い説明・詳しい説明） | `docs/store-listing.md` | 作成済み |
 | データセーフティ申告の原稿 | `docs/store-listing.md` 6 章 | 作成済み |
-| プライバシーポリシー | `docs/privacy-policy.md` | 作成済み（公開 URL 化は手作業） |
+| プライバシーポリシー | `public/privacy.html`（GitHub Pages で公開中） | 公開済み |
 | R8 有効ビルドの動作検証 | `-Pfpv.minifyDebug=true` | 実機で主要機能を確認済み |
 
 ### 素材の再生成
@@ -120,15 +120,20 @@ Play に公開すると、**署名の扱いが GitHub Releases と変わる**。
 
 ### 5-4. プライバシーポリシー
 
-`docs/privacy-policy.md` を**一般公開 URL** で公開する必要がある。
+GitHub Pages で公開済み（Issue #136）。
 
-方法の例:
+**https://tonbiattack.github.io/fastest-picture-viewer/privacy.html**
 
-1. GitHub リポジトリの Settings → Pages で公開
-2. リポジトリを public にしたうえで、`docs/privacy-policy.md` の URL を使う
-3. 別途、静的サイトとして公開する
+この URL を Play Console の「プライバシーポリシー」欄に入力する。
 
-公開した URL を Play Console の「プライバシーポリシー」欄に入力する。
+仕組み:
+
+- 公開用の HTML は `public/privacy.html`（`docs/privacy-policy.md` の内容を HTML 化したもの）
+- `.github/workflows/pages.yml` が `public/` の中身だけを Pages にデプロイする
+- `docs/` をソースにすると署名方針などの内部ドキュメントも公開されるため、
+  専用ディレクトリに分けている
+
+`docs/privacy-policy.md` を更新したら、`public/privacy.html` も同じ内容に更新する。
 
 ### 5-5. データセーフティ
 
@@ -200,7 +205,8 @@ Play は一度公開したバージョンを取り下げられない。
 ## 8. 未実施・確認が必要な項目
 
 - [ ] Play Console の開発者登録・本人確認・支払い（オーナー）
-- [ ] プライバシーポリシーの公開 URL 化（オーナー）
+- [x] プライバシーポリシーの公開 URL 化
+      → https://tonbiattack.github.io/fastest-picture-viewer/privacy.html
 - [ ] 内部テストでの実機インストールと主要機能の確認
 - [ ] クローズドテストの要否確認（アカウント種別による）
 - [ ] 本番公開の申請
