@@ -10,6 +10,7 @@ import com.tonbiattack.fastestpictureviewer.data.ImageItem
 import com.tonbiattack.fastestpictureviewer.repository.GalleryRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -44,8 +45,12 @@ data class ImageGridUiState(
     val searchQuery: String = "",
     /** お気に入りのみ表示中か */
     val favoritesOnly: Boolean = false,
-    /** 画像一覧の並び順 (Issue #130) */
+    /** このフォルダに実際に適用中の並び順 (Issue #130 / #143) */
     val sortMode: ImageSortMode = ImageSortMode.DEFAULT,
+    /** 全体の並び順 (Issue #143)。フォルダ個別の上書きが無いときに使う */
+    val globalSortMode: ImageSortMode = ImageSortMode.DEFAULT,
+    /** このフォルダだけ並び順を変えているか (Issue #143) */
+    val hasFolderSortOverride: Boolean = false,
     /** 復元する先頭インデックス */
     val initialIndex: Int = 0,
     /** 復元する先頭アイテムのピクセルオフセット */
@@ -216,10 +221,26 @@ class ImageGridViewModel(
         }
     }
 
+    /**
+     * このフォルダに実際に適用する並び順 (Issue #143)。
+     *
+     * フォルダ個別の上書きがあればそれを、無ければ全体の設定を使う。
+     */
+    private val effectiveSortMode: Flow<ImageSortMode> = run {
+        val key = folderKey
+        if (key.isNullOrEmpty()) {
+            viewSettings.sortMode
+        } else {
+            combine(viewSettings.sortMode, viewSettings.folderSortOverrides) { global, overrides ->
+                overrides[key] ?: global
+            }
+        }
+    }
+
     val uiState: StateFlow<ImageGridUiState> = combine(
         // 並び順を切り替えると購読先のクエリごと変わる (Issue #130)。
         // flatMapLatest で古い購読を打ち切り、切り替え時に二重に流さない
-        viewSettings.sortMode.flatMapLatest { mode ->
+        effectiveSortMode.flatMapLatest { mode ->
             repository.observeImages(folderKey.orEmpty(), mode)
         },
         repository.syncStatus,
@@ -250,7 +271,10 @@ class ImageGridViewModel(
             favoriteIds = favoriteIds,
             searchQuery = context.filter.query,
             favoritesOnly = context.filter.favoritesOnly,
-            sortMode = viewSettings.sortMode.value,
+            sortMode = viewSettings.sortModeFor(folderKey),
+            globalSortMode = viewSettings.sortMode.value,
+            hasFolderSortOverride = !folderKey.isNullOrEmpty() &&
+                viewSettings.folderSortOverrides.value.containsKey(folderKey),
             initialIndex = if (context.isFiltered) {
                 0
             } else {
@@ -300,6 +324,27 @@ class ImageGridViewModel(
         if (viewSettings.sortMode.value == mode) return
         viewSettings.setSortMode(mode)
         // 並び順ごとに保存された位置が別物になるため、復帰位置をリセットする
+        scrollRestore.value = ScrollRestore(
+            loaded = true,
+            anchorItemId = null,
+            fallbackIndex = 0,
+            offsetPx = 0
+        )
+        returnRequest.value += 1
+    }
+
+    /**
+     * このフォルダだけの並び順を変更する (Issue #143)。
+     *
+     * @param mode null を渡すと個別設定を解除し、全体の設定に従うようになる
+     */
+    fun setFolderSortMode(mode: ImageSortMode?) {
+        val key = folderKey?.takeIf { it.isNotEmpty() } ?: return
+        // 上書きが無い状態で null を渡されたら何もしない
+        val current = viewSettings.folderSortOverrides.value[key]
+        if (current == mode) return
+        viewSettings.setFolderSortMode(key, mode)
+        // 並び順が変わると画像の位置も変わるため、復帰位置をリセットする
         scrollRestore.value = ScrollRestore(
             loaded = true,
             anchorItemId = null,

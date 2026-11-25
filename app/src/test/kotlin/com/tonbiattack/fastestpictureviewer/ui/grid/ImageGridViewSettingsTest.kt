@@ -5,6 +5,7 @@ import com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
@@ -166,5 +167,110 @@ class ImageGridViewSettingsTest {
 
         assertEquals(5, settings.columnCount.value)
         assertEquals(ImageSortMode.DATE_OLDEST, settings.sortMode.value)
+    }
+
+    // ---- フォルダ単位の並び順 (Issue #143) ----
+
+    @Test
+    fun `フォルダ個別の指定が無ければ全体の設定に従う`() {
+        val settings = SharedPreferencesImageGridViewSettings(context)
+        settings.setSortMode(ImageSortMode.DATE_NEWEST)
+
+        // 上書きしていないフォルダは全体設定
+        assertEquals(ImageSortMode.DATE_NEWEST, settings.sortModeFor("v:Pictures/A/"))
+        assertEquals(ImageSortMode.DATE_NEWEST, settings.sortModeFor(null))
+        assertEquals(ImageSortMode.DATE_NEWEST, settings.sortModeFor(""))
+    }
+
+    @Test
+    fun `特定のフォルダだけ並び順を変えられる`() {
+        val settings = SharedPreferencesImageGridViewSettings(context)
+        // 全体は名前順のまま
+        assertEquals(ImageSortMode.NAME, settings.sortMode.value)
+
+        settings.setFolderSortMode("v:Pictures/A/", ImageSortMode.DATE_OLDEST)
+
+        // 指定したフォルダだけ変わり、他は全体のまま
+        assertEquals(ImageSortMode.DATE_OLDEST, settings.sortModeFor("v:Pictures/A/"))
+        assertEquals(ImageSortMode.NAME, settings.sortModeFor("v:Pictures/B/"))
+        assertEquals(ImageSortMode.NAME, settings.sortMode.value)
+    }
+
+    @Test
+    fun `フォルダ個別の指定は別インスタンスでも維持される`() {
+        SharedPreferencesImageGridViewSettings(context)
+            .setFolderSortMode("v:Pictures/A/", ImageSortMode.DATE_NEWEST)
+
+        // アプリ再起動相当
+        val restored = SharedPreferencesImageGridViewSettings(context)
+        assertEquals(ImageSortMode.DATE_NEWEST, restored.sortModeFor("v:Pictures/A/"))
+        assertEquals(1, restored.folderSortOverrides.value.size)
+    }
+
+    @Test
+    fun `上書きを解除すると全体の設定に戻る`() {
+        val settings = SharedPreferencesImageGridViewSettings(context)
+        settings.setSortMode(ImageSortMode.DATE_NEWEST)
+        settings.setFolderSortMode("v:Pictures/A/", ImageSortMode.NAME)
+        assertEquals(ImageSortMode.NAME, settings.sortModeFor("v:Pictures/A/"))
+
+        settings.setFolderSortMode("v:Pictures/A/", null)
+
+        assertEquals(ImageSortMode.DATE_NEWEST, settings.sortModeFor("v:Pictures/A/"))
+        assertTrue(settings.folderSortOverrides.value.isEmpty())
+    }
+
+    @Test
+    fun `全体が新しい順でもフォルダだけ名前順にできる`() {
+        // 既定（名前順）と同値でも上書きとして保持する必要がある
+        val settings = SharedPreferencesImageGridViewSettings(context)
+        settings.setSortMode(ImageSortMode.DATE_NEWEST)
+        settings.setFolderSortMode("v:Pictures/A/", ImageSortMode.NAME)
+
+        val restored = SharedPreferencesImageGridViewSettings(context)
+        assertEquals(ImageSortMode.NAME, restored.sortModeFor("v:Pictures/A/"))
+        assertEquals(ImageSortMode.DATE_NEWEST, restored.sortModeFor("v:Pictures/B/"))
+    }
+
+    @Test
+    fun `複数フォルダに別々の並び順を設定できる`() {
+        val settings = SharedPreferencesImageGridViewSettings(context)
+        settings.setFolderSortMode("v:A/", ImageSortMode.DATE_OLDEST)
+        settings.setFolderSortMode("v:B/", ImageSortMode.DATE_NEWEST)
+
+        assertEquals(ImageSortMode.DATE_OLDEST, settings.sortModeFor("v:A/"))
+        assertEquals(ImageSortMode.DATE_NEWEST, settings.sortModeFor("v:B/"))
+        assertEquals(2, settings.folderSortOverrides.value.size)
+    }
+
+    @Test
+    fun `フォルダ個別の保存値が壊れていても落ちない`() {
+        context.getSharedPreferences("image_grid_view_settings", Context.MODE_PRIVATE)
+            .edit()
+            .putString("folder_sort_overrides", "{ これは壊れた JSON")
+            .commit()
+
+        val settings = SharedPreferencesImageGridViewSettings(context)
+
+        // 読めない値は無視し、全体の設定に従う
+        assertTrue(settings.folderSortOverrides.value.isEmpty())
+        assertEquals(ImageSortMode.NAME, settings.sortModeFor("v:Pictures/A/"))
+    }
+
+    @Test
+    fun `フォルダ個別の保存値に未知の名前が混ざっても無視する`() {
+        context.getSharedPreferences("image_grid_view_settings", Context.MODE_PRIVATE)
+            .edit()
+            .putString(
+                "folder_sort_overrides",
+                """{"v:A/":"DATE_NEWEST","v:B/":"UNKNOWN_MODE"}"""
+            )
+            .commit()
+
+        val settings = SharedPreferencesImageGridViewSettings(context)
+
+        assertEquals(ImageSortMode.DATE_NEWEST, settings.sortModeFor("v:A/"))
+        // 未知の値は上書きとして扱わない
+        assertEquals(ImageSortMode.NAME, settings.sortModeFor("v:B/"))
     }
 }

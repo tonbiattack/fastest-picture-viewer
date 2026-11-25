@@ -6,6 +6,7 @@ import com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONObject
 
 /**
  * フォルダ内画像グリッドの表示設定。
@@ -34,15 +35,39 @@ interface ImageGridViewSettings {
     fun restoreColumnCounts(portrait: Int, landscape: Int)
 
     /**
-     * 画像一覧の並び順。
+     * 画像一覧の並び順（全体の既定）。
      *
-     * フォルダごとではなく、画像一覧全体で 1 つの設定として持つ。
-     * 既定は名前順（既存の動作を変えない）。
+     * 個別に指定の無いフォルダはこの設定に従う。既定は名前順。
      */
     val sortMode: StateFlow<ImageSortMode>
 
-    /** 並び順を保存して即時反映する */
+    /**
+     * フォルダごとの並び順の上書き (Issue #143)。
+     *
+     * 特定のフォルダだけ更新日時順にしたい、という使い方のためのもの。
+     * ここに含まれないフォルダは [sortMode] に従う。
+     */
+    val folderSortOverrides: StateFlow<Map<String, ImageSortMode>>
+
+    /** 全体の並び順を保存して即時反映する */
     fun setSortMode(mode: ImageSortMode)
+
+    /**
+     * フォルダ単位の並び順を保存する (Issue #143)。
+     *
+     * @param mode null を渡すと上書きを解除し、全体の設定に従うようになる
+     */
+    fun setFolderSortMode(folderKey: String, mode: ImageSortMode?)
+
+    /**
+     * 指定フォルダの実効並び順を返す。上書きが無ければ全体の設定。
+     *
+     * 保存値を読むだけなので、UI から同期的に呼べる。
+     */
+    fun sortModeFor(folderKey: String?): ImageSortMode {
+        val key = folderKey?.takeIf { it.isNotEmpty() } ?: return sortMode.value
+        return folderSortOverrides.value[key] ?: sortMode.value
+    }
 }
 
 /**
@@ -81,6 +106,10 @@ class SharedPreferencesImageGridViewSettings(context: Context) : ImageGridViewSe
         ImageSortMode.fromName(prefs.getString(KEY_SORT_MODE, null))
     )
     override val sortMode: StateFlow<ImageSortMode> = _sortMode.asStateFlow()
+
+    private val _folderSortOverrides = MutableStateFlow(readFolderOverrides())
+    override val folderSortOverrides: StateFlow<Map<String, ImageSortMode>> =
+        _folderSortOverrides.asStateFlow()
 
     init {
         // 移行結果を書き戻し、次回起動で旧キーに依存しないようにする
@@ -128,6 +157,50 @@ class SharedPreferencesImageGridViewSettings(context: Context) : ImageGridViewSe
         _sortMode.value = mode
     }
 
+    override fun setFolderSortMode(folderKey: String, mode: ImageSortMode?) {
+        if (folderKey.isEmpty()) return
+        val next = _folderSortOverrides.value.toMutableMap()
+        if (mode == null) {
+            // 上書きを解除し、全体の設定に従わせる
+            if (next.remove(folderKey) == null) return
+        } else {
+            if (next[folderKey] == mode) return
+            next[folderKey] = mode
+        }
+        _folderSortOverrides.value = next
+        prefs.edit { putString(KEY_FOLDER_SORT_OVERRIDES, writeFolderOverrides(next)) }
+    }
+
+    /**
+     * 保存されているフォルダ単位の並び順を読む (Issue #143)。
+     *
+     * 壊れた JSON や未知の値は無視する。読めなかった場合は空のマップを返し、
+     * すべてのフォルダが全体設定に従う状態へ戻す。
+     *
+     * 名前順もそのまま保持する。全体が新しい順のときに
+     * 「このフォルダだけ名前順」を指定できるようにするため。
+     */
+    private fun readFolderOverrides(): Map<String, ImageSortMode> {
+        val raw = prefs.getString(KEY_FOLDER_SORT_OVERRIDES, null) ?: return emptyMap()
+        return runCatching {
+            val json = JSONObject(raw)
+            buildMap {
+                json.keys().forEach { key ->
+                    // 未知の値は fromName が既定へ倒すため、既知の名前だけ拾う
+                    val name = json.optString(key)
+                    ImageSortMode.ALL.firstOrNull { it.name == name }?.let { put(key, it) }
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    /** フォルダ単位の並び順を JSON へ書く */
+    private fun writeFolderOverrides(overrides: Map<String, ImageSortMode>): String {
+        val json = JSONObject()
+        overrides.forEach { (key, mode) -> json.put(key, mode.name) }
+        return json.toString()
+    }
+
     companion object {
         const val DEFAULT_COLUMN_COUNT = 3
         const val MIN_COLUMN_COUNT = 2
@@ -137,6 +210,9 @@ class SharedPreferencesImageGridViewSettings(context: Context) : ImageGridViewSe
         private const val KEY_PORTRAIT_COLUMN_COUNT = "column_count_portrait"
         private const val KEY_LANDSCAPE_COLUMN_COUNT = "column_count_landscape"
         private const val KEY_SORT_MODE = "sort_mode"
+
+        /** フォルダ単位の並び順。JSON 文字列で持つ (Issue #143) */
+        private const val KEY_FOLDER_SORT_OVERRIDES = "folder_sort_overrides"
 
         /** 旧バージョン (Issue #34) の単一キー。移行の初期値としてのみ読む */
         private const val KEY_LEGACY_COLUMN_COUNT = "column_count"

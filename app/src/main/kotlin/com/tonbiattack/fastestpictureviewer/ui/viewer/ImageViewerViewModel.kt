@@ -95,14 +95,15 @@ class ImageViewerViewModel(
             repository.observeFavoriteImages(favoriteFolderFilter)
         } else {
             // グリッドと同じ並び順で読む (Issue #137)。
-            // 並び順を渡さないと常に名前順になり、グリッドで選んだ位置とずれる
-            val sortModeFlow = gridViewSettings?.sortMode
-            if (sortModeFlow == null) {
+            // フォルダ個別の上書きも反映する (Issue #143)
+            val settings = gridViewSettings
+            if (settings == null) {
                 repository.observeImages(rawFolderKey)
             } else {
-                // @OptIn は flatMapLatest 自体に必要なため、呼び出し側で指定する
                 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-                sortModeFlow.flatMapLatest { mode ->
+                combine(settings.sortMode, settings.folderSortOverrides) { global, overrides ->
+                    overrides[rawFolderKey] ?: global
+                }.flatMapLatest { mode ->
                     repository.observeImages(rawFolderKey, mode)
                 }
             }

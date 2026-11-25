@@ -586,11 +586,22 @@ class ImageViewerViewModelTest {
         override val columnCount: StateFlow<Int> = MutableStateFlow(3)
         override val portraitColumnCount: StateFlow<Int> = MutableStateFlow(3)
         override val landscapeColumnCount: StateFlow<Int> = MutableStateFlow(3)
+
+        private val _folderSortOverrides = MutableStateFlow<Map<String, ImageSortMode>>(emptyMap())
+        override val folderSortOverrides: StateFlow<Map<String, ImageSortMode>> =
+            _folderSortOverrides
+
         override fun setColumnCount(count: Int) = Unit
         override fun setLandscape(isLandscape: Boolean) = Unit
         override fun restoreColumnCounts(portrait: Int, landscape: Int) = Unit
         override fun setSortMode(mode: ImageSortMode) {
             _sortMode.value = mode
+        }
+
+        override fun setFolderSortMode(folderKey: String, mode: ImageSortMode?) {
+            val next = _folderSortOverrides.value.toMutableMap()
+            if (mode == null) next.remove(folderKey) else next[folderKey] = mode
+            _folderSortOverrides.value = next
         }
     }
 }
