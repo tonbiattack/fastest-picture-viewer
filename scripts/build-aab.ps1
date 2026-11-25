@@ -121,16 +121,24 @@ function Get-BuildVersion {
         }
     }
 
-    # build.gradle.kts の既定値を読む
+    # build.gradle.kts の既定値を読む。
+    # バージョンは `val defaultVersionName = "x.y.z"` に集約されており、
+    # versionCode はそこから計算される（versionCodeOf）。
     $gradleFile = Join-Path $projectRoot 'app\build.gradle.kts'
     $code = '(不明)'
     $name = '(不明)'
     if (Test-Path $gradleFile) {
         $text = Get-Content $gradleFile -Raw
-        $m = [regex]::Match($text, 'versionCode\s*=\s*\(findProperty\("fpv\.versionCode"\)[^\r\n]*\?\:\s*(\d+)')
-        if ($m.Success) { $code = $m.Groups[1].Value }
-        $m = [regex]::Match($text, 'versionName\s*=\s*\(findProperty\("fpv\.versionName"\)[^\r\n]*\?\:\s*"([^"]+)"')
-        if ($m.Success) { $name = $m.Groups[1].Value }
+        $m = [regex]::Match($text, 'val defaultVersionName = "([^"]+)"')
+        if ($m.Success) {
+            $name = $m.Groups[1].Value
+            # versionCodeOf と同じ計算式: major*10000 + minor*100 + patch
+            $parts = $name.Split('.')
+            if ($parts.Count -eq 3) {
+                $nums = $parts | ForEach-Object { [int]$_ }
+                $code = "$($nums[0] * 10000 + $nums[1] * 100 + $nums[2])"
+            }
+        }
     }
     return [pscustomobject]@{ Code = $code; Name = $name }
 }
