@@ -131,6 +131,15 @@ class HelpContentTest {
     }
 
     @Test
+    fun `フォルダ単位の並び順に言及している`() {
+        // Issue #143 で追加したフォルダ個別設定へ誘導できること
+        val section = HelpContent.SECTIONS.first { it.title.contains("画像一覧") }
+
+        assertTrue("このフォルダだけ変えられることが書かれていない",
+            section.body.contains("このフォルダの並び順"))
+    }
+
+    @Test
     fun `オフラインであることに言及している`() {
         val about = HelpContent.FAQ.first { it.title.contains("アプリについて") }
 

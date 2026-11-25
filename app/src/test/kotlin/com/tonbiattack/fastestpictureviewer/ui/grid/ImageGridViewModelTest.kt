@@ -34,6 +34,7 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -76,8 +77,18 @@ class ImageGridViewModelTest {
         private val _sortMode = MutableStateFlow(ImageSortMode.DEFAULT)
         override val sortMode: StateFlow<ImageSortMode> = _sortMode
 
+        private val _folderSortOverrides = MutableStateFlow<Map<String, ImageSortMode>>(emptyMap())
+        override val folderSortOverrides: StateFlow<Map<String, ImageSortMode>> =
+            _folderSortOverrides
+
         override fun setSortMode(mode: ImageSortMode) {
             _sortMode.value = mode
+        }
+
+        override fun setFolderSortMode(folderKey: String, mode: ImageSortMode?) {
+            val next = _folderSortOverrides.value.toMutableMap()
+            if (mode == null) next.remove(folderKey) else next[folderKey] = mode
+            _folderSortOverrides.value = next
         }
     }
 
@@ -406,5 +417,64 @@ class ImageGridViewModelTest {
         advanceUntilIdle()
 
         assertEquals(5, vm.uiState.value.images.size)
+    }
+
+    // ---- フォルダ単位の並び順 (Issue #143) ----
+
+    @Test
+    fun `このフォルダだけ並び順を変えられる`() = runTest {
+        val settings = FakeViewSettings()
+        val vm = viewModel(settings)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        // 既定は全体に従う
+        assertFalse(vm.uiState.value.hasFolderSortOverride)
+        assertEquals(ImageSortMode.NAME, vm.uiState.value.sortMode)
+
+        vm.setFolderSortMode(ImageSortMode.DATE_OLDEST)
+        advanceUntilIdle()
+
+        assertTrue("このフォルダの個別設定が立っていない", vm.uiState.value.hasFolderSortOverride)
+        assertEquals(ImageSortMode.DATE_OLDEST, vm.uiState.value.sortMode)
+        // 全体設定は変わらない
+        assertEquals(ImageSortMode.NAME, vm.uiState.value.globalSortMode)
+        assertEquals(ImageSortMode.NAME, settings.sortMode.value)
+    }
+
+    @Test
+    fun `個別設定を解除すると全体に従う`() = runTest {
+        val settings = FakeViewSettings()
+        val vm = viewModel(settings)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.setFolderSortMode(ImageSortMode.DATE_NEWEST)
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.hasFolderSortOverride)
+
+        vm.setFolderSortMode(null)
+        advanceUntilIdle()
+
+        assertFalse("個別設定が残っている", vm.uiState.value.hasFolderSortOverride)
+        assertEquals(ImageSortMode.NAME, vm.uiState.value.sortMode)
+    }
+
+    @Test
+    fun `全体の並び順を変えても個別設定は残る`() = runTest {
+        val settings = FakeViewSettings()
+        val vm = viewModel(settings)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        vm.setFolderSortMode(ImageSortMode.DATE_OLDEST)
+        advanceUntilIdle()
+
+        // 全体を新しい順に変えても、このフォルダは古い順のまま
+        vm.setSortMode(ImageSortMode.DATE_NEWEST)
+        advanceUntilIdle()
+
+        assertEquals(ImageSortMode.DATE_OLDEST, vm.uiState.value.sortMode)
+        assertEquals(ImageSortMode.DATE_NEWEST, vm.uiState.value.globalSortMode)
     }
 }

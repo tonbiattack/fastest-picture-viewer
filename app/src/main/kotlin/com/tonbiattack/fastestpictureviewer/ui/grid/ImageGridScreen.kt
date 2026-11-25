@@ -129,9 +129,12 @@ fun ImageGridScreen(
             portraitColumnCount = state.portraitColumnCount,
             landscapeColumnCount = state.landscapeColumnCount,
             isLandscape = isLandscape,
-            sortMode = state.sortMode,
+            folderSortMode = state.sortMode,
+            globalSortMode = state.globalSortMode,
+            hasFolderSortOverride = state.hasFolderSortOverride,
             onColumnCountChange = viewModel::setColumnCount,
             onSortModeChange = viewModel::setSortMode,
+            onFolderSortModeChange = viewModel::setFolderSortMode,
             onDismiss = { showDisplaySettings = false }
         )
     }
@@ -456,9 +459,16 @@ private fun ImageGridDisplaySettingsDialog(
     portraitColumnCount: Int,
     landscapeColumnCount: Int,
     isLandscape: Boolean,
-    sortMode: ImageSortMode,
+    /** このフォルダに適用中の並び順 (Issue #143) */
+    folderSortMode: ImageSortMode,
+    /** 全体の並び順 */
+    globalSortMode: ImageSortMode,
+    /** このフォルダだけ並び順を変えているか */
+    hasFolderSortOverride: Boolean,
     onColumnCountChange: (Int) -> Unit,
     onSortModeChange: (ImageSortMode) -> Unit,
+    /** null でこのフォルダの個別設定を解除する */
+    onFolderSortModeChange: (ImageSortMode?) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -467,13 +477,48 @@ private fun ImageGridDisplaySettingsDialog(
         text = {
             // 小さい画面でも設定項目が切れないよう縦スクロール可能にする
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                // 並び順 (Issue #130)。名前順は従来の動作
-                Text("画像の並び順", style = MaterialTheme.typography.bodyMedium)
+                // このフォルダだけの並び順 (Issue #143)。
+                // 特定のフォルダだけ更新日時順にしたい、という使い方のために先に出す
+                Text("このフォルダの並び順", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !hasFolderSortOverride,
+                        onClick = { onFolderSortModeChange(null) },
+                        label = { Text("全体に従う") }
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ImageSortMode.ALL.forEach { mode ->
+                        FilterChip(
+                            selected = hasFolderSortOverride && folderSortMode == mode,
+                            onClick = { onFolderSortModeChange(mode) },
+                            label = { Text(mode.label) }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = if (hasFolderSortOverride) {
+                        "このフォルダだけ「${folderSortMode.label}」で並べます。" +
+                            "他のフォルダは全体の設定に従います。"
+                    } else {
+                        "全体の設定（${globalSortMode.label}）に従っています。" +
+                            "このフォルダだけ変えるときは上の選択肢を押してください。"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(16.dp))
+
+                // 全体の並び順 (Issue #130)
+                Text("画像の並び順（すべてのフォルダ）", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ImageSortMode.ALL.forEach { mode ->
                         FilterChip(
-                            selected = sortMode == mode,
+                            selected = globalSortMode == mode,
                             onClick = { onSortModeChange(mode) },
                             label = { Text(mode.label) }
                         )
@@ -481,7 +526,7 @@ private fun ImageGridDisplaySettingsDialog(
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = when (sortMode) {
+                    text = when (globalSortMode) {
                         ImageSortMode.NAME -> "ファイル名の自然順（1, 2, 10 の順）で並べます。"
                         ImageSortMode.DATE_NEWEST -> "更新日時の新しい順で並べます。"
                         ImageSortMode.DATE_OLDEST -> "更新日時の古い順で並べます。"
