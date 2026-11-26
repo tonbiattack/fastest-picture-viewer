@@ -1,11 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Auto Backup（API 30 以前）の対象ルール (Issue #63)。
+  Auto Backup（API 30 以前）の対象ルール (Issue #63 / #151)。
 
   実機の Room DB は約 295MB あり、Auto Backup の上限（25MB）を超えるため
-  毎回失敗する。巨大な DB だけを除外し、それ以外（SharedPreferences の
-  設定など）は既定どおりバックアップする。
-  タグ・お気に入りは Room にあるため、端末をまたぐと引き継がれない。
+  毎回失敗する。巨大な DB だけを除外し、それ以外は既定どおりバックアップする。
+
+  タグ・お気に入り・除外フォルダは Room にあるため、DB を除外すると
+  端末をまたいで引き継げない。そこで #151 で、再生成できないデータだけを
+  files/auto_backup/auto_backup.json へ書き出すようにした。
+  この小さな JSON は files/ 配下なので、既定のまま Auto Backup の対象になる
+  （数十 KB 程度で、25MB の上限に収まる）。
+
+  `include` は書かない。書くと「include したものだけ」が対象になり、
+  SharedPreferences（表示設定）が対象から外れてしまうため。
+
   cacheDir（サムネイル）は元々 Auto Backup の対象外。
 -->
 <full-backup-content>

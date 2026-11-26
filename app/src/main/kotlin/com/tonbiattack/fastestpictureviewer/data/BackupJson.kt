@@ -76,6 +76,19 @@ object BackupJson {
                 .put("imageColumnsPortrait", data.settings.imageColumnsPortrait)
                 .put("imageColumnsLandscape", data.settings.imageColumnsLandscape)
                 .put("showResumeCard", data.settings.showResumeCard)
+                // 以下は Issue #151 で追加。古いアプリは無視するだけなので安全
+                .put("imageSortMode", data.settings.imageSortMode)
+                .put(
+                    "folderSortOverrides",
+                    JSONObject().also { json ->
+                        data.settings.folderSortOverrides.forEach { (key, mode) ->
+                            json.put(key, mode)
+                        }
+                    }
+                )
+                .put("restoreScrollPosition", data.settings.restoreScrollPosition)
+                .put("showStaleMediaNotice", data.settings.showStaleMediaNotice)
+                .put("slideshowIntervalSec", data.settings.slideshowIntervalSec)
         )
         return root.toString(2)
     }
@@ -101,7 +114,13 @@ object BackupJson {
             sortMode = settingsJson?.optString("sortMode", "LATEST") ?: "LATEST",
             imageColumnsPortrait = settingsJson?.optInt("imageColumnsPortrait", 3) ?: 3,
             imageColumnsLandscape = settingsJson?.optInt("imageColumnsLandscape", 3) ?: 3,
-            showResumeCard = settingsJson?.optBoolean("showResumeCard", true) ?: true
+            showResumeCard = settingsJson?.optBoolean("showResumeCard", true) ?: true,
+            // Issue #151 で追加。古いバックアップには無いため既定値を使う
+            imageSortMode = settingsJson?.optString("imageSortMode", "NAME") ?: "NAME",
+            folderSortOverrides = readStringMap(settingsJson?.optJSONObject("folderSortOverrides")),
+            restoreScrollPosition = settingsJson?.optBoolean("restoreScrollPosition", true) ?: true,
+            showStaleMediaNotice = settingsJson?.optBoolean("showStaleMediaNotice", true) ?: true,
+            slideshowIntervalSec = settingsJson?.optInt("slideshowIntervalSec", 3) ?: 3
         )
 
         return BackupData(
@@ -115,6 +134,17 @@ object BackupJson {
             excludedFolders = readFolderRefs(root.optJSONArray("excludedFolders")),
             settings = settings
         )
+    }
+
+    /** JSON オブジェクトを文字列マップとして読む。無ければ空 (Issue #151) */
+    private fun readStringMap(json: JSONObject?): Map<String, String> {
+        if (json == null) return emptyMap()
+        val result = LinkedHashMap<String, String>(json.length())
+        json.keys().forEach { key ->
+            val value = json.optString(key)
+            if (value.isNotEmpty()) result[key] = value
+        }
+        return result
     }
 
     private fun readTags(array: JSONArray?): List<BackupTag> {
