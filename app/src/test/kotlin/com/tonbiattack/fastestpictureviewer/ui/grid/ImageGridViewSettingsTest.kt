@@ -5,6 +5,7 @@ import com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Before
@@ -272,5 +273,47 @@ class ImageGridViewSettingsTest {
         assertEquals(ImageSortMode.DATE_NEWEST, settings.sortModeFor("v:A/"))
         // 未知の値は上書きとして扱わない
         assertEquals(ImageSortMode.NAME, settings.sortModeFor("v:B/"))
+    }
+
+    // ---- スクロール位置の復元 (Issue #147) ----
+
+    @Test
+    fun `スクロール位置の復元は既定で有効`() {
+        // 既存ユーザーの動作を変えないこと
+        val settings = SharedPreferencesImageGridViewSettings(context)
+
+        assertTrue(settings.restoreScrollPosition.value)
+    }
+
+    @Test
+    fun `スクロール位置の復元を無効にできる`() {
+        val settings = SharedPreferencesImageGridViewSettings(context)
+        settings.setRestoreScrollPosition(false)
+
+        assertFalse(settings.restoreScrollPosition.value)
+    }
+
+    @Test
+    fun `スクロール位置の復元設定は別インスタンスでも維持される`() {
+        SharedPreferencesImageGridViewSettings(context).setRestoreScrollPosition(false)
+
+        // アプリ再起動相当
+        val restored = SharedPreferencesImageGridViewSettings(context)
+        assertFalse(restored.restoreScrollPosition.value)
+
+        restored.setRestoreScrollPosition(true)
+        assertTrue(SharedPreferencesImageGridViewSettings(context).restoreScrollPosition.value)
+    }
+
+    @Test
+    fun `スクロール位置の復元設定は他の設定に影響しない`() {
+        val settings = SharedPreferencesImageGridViewSettings(context)
+        settings.setColumnCount(5)
+        settings.setSortMode(ImageSortMode.DATE_OLDEST)
+        settings.setRestoreScrollPosition(false)
+
+        assertEquals(5, settings.columnCount.value)
+        assertEquals(ImageSortMode.DATE_OLDEST, settings.sortMode.value)
+        assertFalse(settings.restoreScrollPosition.value)
     }
 }

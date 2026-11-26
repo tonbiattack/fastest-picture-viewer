@@ -83,6 +83,11 @@ class ImageGridViewModelTest {
 
         override fun setSortMode(mode: ImageSortMode) {
             _sortMode.value = mode
+        }        private val _restoreScrollPosition = MutableStateFlow(true)
+        override val restoreScrollPosition: StateFlow<Boolean> = _restoreScrollPosition
+
+        override fun setRestoreScrollPosition(enabled: Boolean) {
+            _restoreScrollPosition.value = enabled
         }
 
         override fun setFolderSortMode(folderKey: String, mode: ImageSortMode?) {
@@ -93,6 +98,9 @@ class ImageGridViewModelTest {
     }
 
     private class FakeRepository(private val images: List<ImageItem>) : GalleryRepository {
+        /** 復元テスト用に差し替えられる保存位置 (Issue #147) */
+        var savedScroll: FolderScrollPositionEntity? = null
+
         override val syncStatus: StateFlow<SyncStatus> = MutableStateFlow(SyncStatus.IDLE)
         override fun observeFolderSummaries(): Flow<List<FolderSummaryRow>> = MutableStateFlow(emptyList())
         override suspend fun rebuildFolderSummaryCache() = Unit
@@ -127,7 +135,8 @@ class ImageGridViewModelTest {
             favorite: Boolean
         ) = Unit
         override suspend fun markFolderOpened(folderKey: String) = Unit
-        override suspend fun getScrollPosition(folderKey: String): FolderScrollPositionEntity? = null
+        override suspend fun getScrollPosition(folderKey: String): FolderScrollPositionEntity? =
+            savedScroll
         override suspend fun saveScrollPosition(
             folderKey: String,
             anchorItemId: String?,
@@ -215,9 +224,10 @@ class ImageGridViewModelTest {
 
     private fun viewModel(
         settings: ImageGridViewSettings = FakeViewSettings(),
-        items: List<ImageItem> = images(5)
+        items: List<ImageItem> = images(5),
+        repo: FakeRepository? = null
     ): ImageGridViewModel = ImageGridViewModel(
-        repository = FakeRepository(items),
+        repository = repo ?: FakeRepository(items),
         savedStateHandle = SavedStateHandle(mapOf("folderKey" to "v:Pictures/")),
         viewSettings = settings
     )
@@ -476,5 +486,61 @@ class ImageGridViewModelTest {
 
         assertEquals(ImageSortMode.DATE_OLDEST, vm.uiState.value.sortMode)
         assertEquals(ImageSortMode.DATE_NEWEST, vm.uiState.value.globalSortMode)
+    }
+
+    // ---- スクロール位置の復元 (Issue #147) ----
+
+    @Test
+    fun `復元が無効なら保存位置を読まずに先頭から表示する`() = runTest {
+        val repo = FakeRepository(images(5))
+        // 保存済みの位置を 3 にしておく
+        repo.savedScroll = FolderScrollPositionEntity(
+            folderKey = "v:Pictures/",
+            anchorItemId = "id3",
+            anchorIndex = 3,
+            anchorOffsetPx = 0,
+            updatedAtSec = 1L
+        )
+        val settings = FakeViewSettings().apply { setRestoreScrollPosition(false) }
+        val vm = viewModel(settings, repo = repo)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        // 復元しないので先頭から
+        assertEquals(0, vm.uiState.value.initialIndex)
+        assertFalse(vm.uiState.value.restoreScrollPosition)
+    }
+
+    @Test
+    fun `復元が有効なら保存位置から表示する`() = runTest {
+        val repo = FakeRepository(images(5))
+        repo.savedScroll = FolderScrollPositionEntity(
+            folderKey = "v:Pictures/",
+            anchorItemId = "id3",
+            anchorIndex = 3,
+            anchorOffsetPx = 0,
+            updatedAtSec = 1L
+        )
+        val settings = FakeViewSettings() // 既定は有効
+        val vm = viewModel(settings, repo = repo)
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(3, vm.uiState.value.initialIndex)
+        assertTrue(vm.uiState.value.restoreScrollPosition)
+    }
+
+    @Test
+    fun `復元の切り替えが UI 状態に反映される`() = runTest {
+        val vm = viewModel(FakeViewSettings())
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.uiState.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.restoreScrollPosition)
+
+        vm.setRestoreScrollPosition(false)
+        advanceUntilIdle()
+
+        assertFalse(vm.uiState.value.restoreScrollPosition)
     }
 }

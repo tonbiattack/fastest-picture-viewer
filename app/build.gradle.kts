@@ -78,7 +78,7 @@ android {
         // versionCode は major*10000 + minor*100 + patch で単調増加させる
         // （.github/workflows/release.yml と同じ計算式）。
         // リリース時は -Pfpv.versionCode=201 -Pfpv.versionName=0.2.1 のように上書きできる。
-        val defaultVersionName = "0.4.0"
+        val defaultVersionName = "0.5.0"
         versionName = (findProperty("fpv.versionName") as String?) ?: defaultVersionName
         versionCode = (findProperty("fpv.versionCode") as String?)?.toIntOrNull()
             ?: versionCodeOf(defaultVersionName)

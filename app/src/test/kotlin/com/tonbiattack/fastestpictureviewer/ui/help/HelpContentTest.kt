@@ -140,6 +140,15 @@ class HelpContentTest {
     }
 
     @Test
+    fun `スクロール位置の復元設定に言及している`() {
+        // Issue #147 で追加した設定へ誘導できること
+        val section = HelpContent.SECTIONS.first { it.title.contains("画像一覧") }
+
+        assertTrue("前回位置から表示する設定が書かれていない",
+            section.body.contains("前回の位置から表示"))
+    }
+
+    @Test
     fun `オフラインであることに言及している`() {
         val about = HelpContent.FAQ.first { it.title.contains("アプリについて") }
 
