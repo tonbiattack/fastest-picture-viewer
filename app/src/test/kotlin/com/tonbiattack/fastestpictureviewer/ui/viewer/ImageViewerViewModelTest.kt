@@ -596,6 +596,11 @@ class ImageViewerViewModelTest {
         override fun restoreColumnCounts(portrait: Int, landscape: Int) = Unit
         override fun setSortMode(mode: ImageSortMode) {
             _sortMode.value = mode
+        }        private val _restoreScrollPosition = MutableStateFlow(true)
+        override val restoreScrollPosition: StateFlow<Boolean> = _restoreScrollPosition
+
+        override fun setRestoreScrollPosition(enabled: Boolean) {
+            _restoreScrollPosition.value = enabled
         }
 
         override fun setFolderSortMode(folderKey: String, mode: ImageSortMode?) {

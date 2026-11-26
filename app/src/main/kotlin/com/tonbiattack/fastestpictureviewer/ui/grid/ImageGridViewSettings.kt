@@ -49,6 +49,13 @@ interface ImageGridViewSettings {
      */
     val folderSortOverrides: StateFlow<Map<String, ImageSortMode>>
 
+    /**
+     * フォルダを開いたときに前回のスクロール位置へ戻すか (Issue #147)。
+     *
+     * 既定は true（従来の動作）。オフにすると毎回先頭から表示する。
+     */
+    val restoreScrollPosition: StateFlow<Boolean>
+
     /** 全体の並び順を保存して即時反映する */
     fun setSortMode(mode: ImageSortMode)
 
@@ -58,6 +65,9 @@ interface ImageGridViewSettings {
      * @param mode null を渡すと上書きを解除し、全体の設定に従うようになる
      */
     fun setFolderSortMode(folderKey: String, mode: ImageSortMode?)
+
+    /** スクロール位置の復元を切り替えて保存する (Issue #147) */
+    fun setRestoreScrollPosition(enabled: Boolean)
 
     /**
      * 指定フォルダの実効並び順を返す。上書きが無ければ全体の設定。
@@ -110,6 +120,11 @@ class SharedPreferencesImageGridViewSettings(context: Context) : ImageGridViewSe
     private val _folderSortOverrides = MutableStateFlow(readFolderOverrides())
     override val folderSortOverrides: StateFlow<Map<String, ImageSortMode>> =
         _folderSortOverrides.asStateFlow()
+
+    private val _restoreScrollPosition = MutableStateFlow(
+        prefs.getBoolean(KEY_RESTORE_SCROLL_POSITION, DEFAULT_RESTORE_SCROLL_POSITION)
+    )
+    override val restoreScrollPosition: StateFlow<Boolean> = _restoreScrollPosition.asStateFlow()
 
     init {
         // 移行結果を書き戻し、次回起動で旧キーに依存しないようにする
@@ -171,6 +186,13 @@ class SharedPreferencesImageGridViewSettings(context: Context) : ImageGridViewSe
         prefs.edit { putString(KEY_FOLDER_SORT_OVERRIDES, writeFolderOverrides(next)) }
     }
 
+    /** スクロール位置の復元を切り替えて保存する (Issue #147) */
+    override fun setRestoreScrollPosition(enabled: Boolean) {
+        if (_restoreScrollPosition.value == enabled) return
+        prefs.edit { putBoolean(KEY_RESTORE_SCROLL_POSITION, enabled) }
+        _restoreScrollPosition.value = enabled
+    }
+
     /**
      * 保存されているフォルダ単位の並び順を読む (Issue #143)。
      *
@@ -213,6 +235,12 @@ class SharedPreferencesImageGridViewSettings(context: Context) : ImageGridViewSe
 
         /** フォルダ単位の並び順。JSON 文字列で持つ (Issue #143) */
         private const val KEY_FOLDER_SORT_OVERRIDES = "folder_sort_overrides"
+
+        /** フォルダを開いたときに前回の位置へ戻すか (Issue #147)。既定は有効 */
+        private const val KEY_RESTORE_SCROLL_POSITION = "restore_scroll_position"
+
+        /** 既存ユーザーの動作を変えないよう、既定は復元する */
+        const val DEFAULT_RESTORE_SCROLL_POSITION = true
 
         /** 旧バージョン (Issue #34) の単一キー。移行の初期値としてのみ読む */
         private const val KEY_LEGACY_COLUMN_COUNT = "column_count"

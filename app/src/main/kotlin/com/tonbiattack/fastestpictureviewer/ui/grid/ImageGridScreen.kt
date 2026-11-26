@@ -53,6 +53,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.material3.Switch
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -132,6 +135,8 @@ fun ImageGridScreen(
             folderSortMode = state.sortMode,
             globalSortMode = state.globalSortMode,
             hasFolderSortOverride = state.hasFolderSortOverride,
+            restoreScrollPosition = state.restoreScrollPosition,
+            onRestoreScrollPositionChange = viewModel::setRestoreScrollPosition,
             onColumnCountChange = viewModel::setColumnCount,
             onSortModeChange = viewModel::setSortMode,
             onFolderSortModeChange = viewModel::setFolderSortMode,
@@ -465,10 +470,13 @@ private fun ImageGridDisplaySettingsDialog(
     globalSortMode: ImageSortMode,
     /** このフォルダだけ並び順を変えているか */
     hasFolderSortOverride: Boolean,
+    /** フォルダを開いたときに前回の位置へ戻すか (Issue #147) */
+    restoreScrollPosition: Boolean,
     onColumnCountChange: (Int) -> Unit,
     onSortModeChange: (ImageSortMode) -> Unit,
     /** null でこのフォルダの個別設定を解除する */
     onFolderSortModeChange: (ImageSortMode?) -> Unit,
+    onRestoreScrollPositionChange: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
@@ -579,6 +587,41 @@ private fun ImageGridDisplaySettingsDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                // スクロール位置の復元 (Issue #147)。
+                // オフにするとフォルダを開くたびに先頭から表示する
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = restoreScrollPosition,
+                            role = Role.Switch,
+                            onValueChange = onRestoreScrollPositionChange
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "前回の位置から表示",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            if (restoreScrollPosition) {
+                                "フォルダを開くと、前回見ていた位置から表示します。"
+                            } else {
+                                "フォルダを開くたびに先頭から表示します。"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = restoreScrollPosition,
+                        // 行側で切り替えるため、スイッチ自身は表示専用にする
+                        onCheckedChange = null
+                    )
+                }
             }
         },
         confirmButton = {

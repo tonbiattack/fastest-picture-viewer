@@ -51,6 +51,8 @@ data class ImageGridUiState(
     val globalSortMode: ImageSortMode = ImageSortMode.DEFAULT,
     /** このフォルダだけ並び順を変えているか (Issue #143) */
     val hasFolderSortOverride: Boolean = false,
+    /** フォルダを開いたときに前回の位置へ戻すか (Issue #147) */
+    val restoreScrollPosition: Boolean = true,
     /** 復元する先頭インデックス */
     val initialIndex: Int = 0,
     /** 復元する先頭アイテムのピクセルオフセット */
@@ -201,6 +203,12 @@ class ImageGridViewModel(
             scrollRestore.value = ScrollRestore(true, null, 0, 0)
         } else {
             viewModelScope.launch {
+                // 復元が無効なら先頭から表示する (Issue #147)。
+                // DB を読まないので、フォルダを開くのも速くなる
+                if (!viewSettings.restoreScrollPosition.value) {
+                    scrollRestore.value = ScrollRestore(true, null, 0, 0)
+                    return@launch
+                }
                 val saved = runCatching { repository.getScrollPosition(key) }.getOrNull()
                 scrollRestore.value = if (saved == null) {
                     ScrollRestore(
@@ -216,6 +224,15 @@ class ImageGridViewModel(
                         fallbackIndex = saved.anchorIndex,
                         offsetPx = saved.anchorOffsetPx
                     )
+                }
+            }
+        }
+        // 復元が無効な間は位置を保存しない。無効→有効に戻したときに
+        // 古い位置へ飛ばないよう、切替時に状態をリセットする
+        viewModelScope.launch {
+            viewSettings.restoreScrollPosition.collect { enabled ->
+                if (!enabled) {
+                    scrollRestore.value = ScrollRestore(true, null, 0, 0)
                 }
             }
         }
@@ -245,8 +262,11 @@ class ImageGridViewModel(
         },
         repository.syncStatus,
         repository.observeFavorites(),
-        uiContext
-    ) { images: List<ImageItem>, sync, favorites: List<FavoriteImageEntity>, context: GridUiContext ->
+        uiContext,
+        // スクロール位置の復元は設定で切り替わるため、依存に含める (Issue #147)
+        viewSettings.restoreScrollPosition
+    ) { images: List<ImageItem>, sync, favorites: List<FavoriteImageEntity>, context: GridUiContext,
+        restoreScroll ->
         val favoriteIds = favorites.mapTo(hashSetOf()) { it.itemId }
         context.favoriteOverrides.forEach { (itemId, favorite) ->
             if (favorite) favoriteIds.add(itemId) else favoriteIds.remove(itemId)
@@ -275,6 +295,7 @@ class ImageGridViewModel(
             globalSortMode = viewSettings.sortMode.value,
             hasFolderSortOverride = !folderKey.isNullOrEmpty() &&
                 viewSettings.folderSortOverrides.value.containsKey(folderKey),
+            restoreScrollPosition = restoreScroll,
             initialIndex = if (context.isFiltered) {
                 0
             } else {
@@ -408,6 +429,9 @@ class ImageGridViewModel(
 
     private suspend fun persistScrollPosition() {
         val key = folderKey ?: return
+        // 復元が無効なら位置を記録しない (Issue #147)。
+        // 記録しても使わないうえ、後で有効に戻したときに古い位置へ飛ぶのを防ぐ
+        if (!viewSettings.restoreScrollPosition.value) return
         val state = uiState.value
         if (state.isFiltered) return
         val images = state.allImages
@@ -419,6 +443,11 @@ class ImageGridViewModel(
             anchorIndex = index,
             anchorOffsetPx = latestOffset
         )
+    }
+
+    /** スクロール位置の復元を切り替える (Issue #147) */
+    fun setRestoreScrollPosition(enabled: Boolean) {
+        viewSettings.setRestoreScrollPosition(enabled)
     }
 
     /** 列数を変更して永続化する。縦横それぞれの保存値へ書き込む (Issue #44) */
