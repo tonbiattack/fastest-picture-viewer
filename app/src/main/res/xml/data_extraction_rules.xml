@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Auto Backup / 端末間転送（API 31 以降）の対象ルール (Issue #63)。
+  Auto Backup / 端末間転送（API 31 以降）の対象ルール (Issue #63 / #151)。
 
-  実機の Room DB は約 295MB あり、バックアップ上限を超えるため除外する。
-  それ以外（列数・並び順・前回の続きなどの SharedPreferences）は既定どおり残す。
-  タグ・お気に入りは Room にあるため、端末をまたぐと引き継がれない。
+  実機の Room DB は約 295MB あり、バックアップ上限（25MB）を超えるため除外する。
+  それ以外（SharedPreferences の設定、files/ 配下の控え）は既定どおり残す。
+
+  タグ・お気に入り・除外フォルダは Room にあるが、#151 で再生成できないデータだけを
+  files/auto_backup/auto_backup.json へ書き出すようにした。
+  この小さな JSON が対象になるため、機種変更後もタグ等を復元できる。
+
+  `include` は書かない。書くと「include したものだけ」が対象になり、
+  SharedPreferences が対象から外れてしまうため。
+
   cacheDir（サムネイル）は元々対象外。
 -->
 <data-extraction-rules>

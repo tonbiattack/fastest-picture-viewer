@@ -5,6 +5,20 @@ import java.util.Date
 import java.util.Locale
 
 /**
+ * タグ・お気に入り・除外・設定の読み書き (Issue #74)。
+ *
+ * Auto Backup の控えを維持する [AutoBackupCoordinator] から使う (Issue #151)。
+ * テストで差し替えられるよう、必要な操作だけをインターフェースにする。
+ */
+interface BackupDataSource {
+    /** 現在のデータをバックアップ用にまとめる */
+    suspend fun collect(appVersionName: String): BackupData
+
+    /** バックアップを現在のデータへ取り込む（既存は消さずマージ） */
+    suspend fun restore(data: BackupData): RestoreResult
+}
+
+/**
  * タグ・お気に入り・除外・設定を JSON ファイルへ書き出し / 読み込みする (Issue #74)。
  *
  * - 端末の買い替えや初期化で失われる「手で作ったデータ」を守るための機能
@@ -17,7 +31,7 @@ class BackupRepository(
     private val settingsAccess: BackupSettingsAccess,
     /** 現在時刻 (テスト差し替え用) */
     private val nowSeconds: () -> Long = { System.currentTimeMillis() / 1000 }
-) {
+) : BackupDataSource {
 
     private val tagDao = db.tagDao()
     private val favoriteFolderDao = db.favoriteFolderDao()
@@ -25,7 +39,7 @@ class BackupRepository(
     private val excludedFolderDao = db.excludedFolderDao()
 
     /** 現在のデータをバックアップ用にまとめる */
-    suspend fun collect(appVersionName: String): BackupData {
+    override suspend fun collect(appVersionName: String): BackupData {
         val tags = tagDao.getAllTags()
         val nameById = tags.associate { it.tagId to it.normalizedName }
         val links = tagDao.getAllFolderTags()
@@ -54,7 +68,7 @@ class BackupRepository(
      * バックアップを現在のデータへ取り込む。
      * 既存データは消さず、足りないものだけを追加する。
      */
-    suspend fun restore(data: BackupData): RestoreResult {
+    override suspend fun restore(data: BackupData): RestoreResult {
         // 1. タグ: 正規化名で照合し、無ければ作る
         val existing = tagDao.getAllTags().associateBy { it.normalizedName }
         val idByNormalized = existing.mapValues { it.value.tagId }.toMutableMap()

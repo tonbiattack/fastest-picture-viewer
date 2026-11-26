@@ -70,7 +70,23 @@ data class BackupSettings(
     /** 画像グリッドの横向き列数 (2〜6) */
     val imageColumnsLandscape: Int,
     /** 前回の続きカードを表示するか */
-    val showResumeCard: Boolean
+    val showResumeCard: Boolean,
+    /**
+     * 画像一覧の並び順 (NAME / DATE_NEWEST / DATE_OLDEST)。
+     * 古いバックアップには無いため既定値を持たせる (Issue #151)
+     */
+    val imageSortMode: String = "NAME",
+    /**
+     * フォルダ単位の並び順の上書き (フォルダキー → 並び順)。
+     * 古いバックアップには無いため空を既定にする (Issue #151)
+     */
+    val folderSortOverrides: Map<String, String> = emptyMap(),
+    /** フォルダを開いたときに前回の位置へ戻すか (Issue #151) */
+    val restoreScrollPosition: Boolean = true,
+    /** 「見つからない画像」の通知を表示するか (Issue #151) */
+    val showStaleMediaNotice: Boolean = true,
+    /** スライドショーの表示間隔（秒）(Issue #151) */
+    val slideshowIntervalSec: Int = 3
 )
 
 /** 取り込み前の確認用の件数 */
