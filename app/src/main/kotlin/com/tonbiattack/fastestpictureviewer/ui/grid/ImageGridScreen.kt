@@ -485,6 +485,41 @@ private fun ImageGridDisplaySettingsDialog(
         text = {
             // 小さい画面でも設定項目が切れないよう縦スクロール可能にする
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                // スクロール位置の復元 (Issue #147)。
+                // ダイアログの下端に置くと画面から見切れて気づけないため、先頭に出す
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = restoreScrollPosition,
+                            role = Role.Switch,
+                            onValueChange = onRestoreScrollPositionChange
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "前回の位置から表示",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            if (restoreScrollPosition) {
+                                "フォルダを開くと、前回見ていた位置から表示します。"
+                            } else {
+                                "フォルダを開くたびに先頭から表示します。"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = restoreScrollPosition,
+                        // 行側で切り替えるため、スイッチ自身は表示専用にする
+                        onCheckedChange = null
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+
                 // このフォルダだけの並び順 (Issue #143)。
                 // 特定のフォルダだけ更新日時順にしたい、という使い方のために先に出す
                 Text("このフォルダの並び順", style = MaterialTheme.typography.bodyMedium)
@@ -587,41 +622,6 @@ private fun ImageGridDisplaySettingsDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-
-                // スクロール位置の復元 (Issue #147)。
-                // オフにするとフォルダを開くたびに先頭から表示する
-                Spacer(Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .toggleable(
-                            value = restoreScrollPosition,
-                            role = Role.Switch,
-                            onValueChange = onRestoreScrollPositionChange
-                        ),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "前回の位置から表示",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            if (restoreScrollPosition) {
-                                "フォルダを開くと、前回見ていた位置から表示します。"
-                            } else {
-                                "フォルダを開くたびに先頭から表示します。"
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Switch(
-                        checked = restoreScrollPosition,
-                        // 行側で切り替えるため、スイッチ自身は表示専用にする
-                        onCheckedChange = null
-                    )
-                }
             }
         },
         confirmButton = {
