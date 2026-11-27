@@ -68,37 +68,58 @@ SharedPreferences（表示設定）が対象から外れてしまうため。
 
 ### 自動テスト
 
-`AutoBackupStoreTest`（11 件）と `AutoBackupCoordinatorTest`（10 件）。
+`AutoBackupStoreTest`（11 件）と `AutoBackupCoordinatorTest`（16 件）。
 
 - 控えの保存・読み戻し・置き換え・削除
 - 25MB 超過時に書かずに結果で知らせる（既存の控えを壊さない）
 - 一時ファイルを残さない
 - 変更時に書き出す／連続変更は 1 回にまとめる
-- DB が空で控えがあれば復元する
-- 既にデータがある端末では復元しない
-- 控えが壊れていても落ちない
-- 復元に失敗しても例外を外へ出さない
+- 既存端末では復元せず初回の控えを作る
+- 新規端末で控えがあれば復元する／二度目は復元しない
+- 控えが壊れているときは空データで上書きしない
+- 復元に失敗したら状態を確定せず次回に再試行する
+- 初期化前の保存は控えを書き換えない
+- 控えが画像を含まない（サイズ上限も確認）
+
+古い形式のバックアップとの互換性は `BackupJsonTest` と
+`ViewSettingsBackupAccessTest` で確認する（欠けた設定を上書きしない）。
 
 `org.json` が Android 実装に依存するため、Robolectric（`@Config(sdk = [34])`）で実行する。
 
 ### 実機で確認したこと（OPPO Reno13 A / Android 16 / ColorOS 16.0.5）
 
-debug 版（別 applicationId）で確認。既存のリリース版データには触れていない。
+**検証にはリリース署名の別アプリID（`.t151r`）を使い、実利用中のアプリには触れていない。**
 
 | 確認項目 | 結果 |
 | --- | --- |
-| フォルダをお気に入りに追加すると控えが生成される | ✅ `files/auto_backup/auto_backup.json`（732 bytes） |
-| 控えにお気に入りと設定が入る | ✅ `favoriteFolders` 1 件、`settings` 一式 |
-| DB を削除して起動すると復元される | ✅ ログ `FPV-Perf: auto backup restored` |
-| 復元結果が UI に出る | ✅ お気に入りフィルタに `preview` が表示され「解除」状態 |
+| 初回起動で控えが自動作成される（既存データ移行） | ✅ `files/auto_backup/auto_backup.json` |
+| 状態ファイルが no_backup に作られる | ✅ `no_backup/auto_backup_initialized` = `done` |
+| データ変更で控えが更新される | ✅ フォルダお気に入り追加後に反映 |
+| OS がバックアップ対象に含める | ✅ `bmgr backupnow` が `Success` |
+| OS が復元できる | ✅ `bmgr restore` が `restoreFinished: 0` |
+| 復元した控えをアプリが取り込む | ✅ ログ `restored ... folders=3` |
+| 実利用アプリへの影響 | ✅ なし（別アプリIDで検証） |
+
+### 検証中に直した問題
+
+1. **既存ユーザーの初回控えが作られない** — 変更時しか保存されず、更新直後は
+   控えが空だった。起動時の `initialize()` で必ず作るよう修正
+2. **初期化が呼ばれないことがある** — `AppContainer` の `also` 内で呼んでいたため、
+   画面生成に依存していた。`initializeContainer()` から直接起動するよう修正
+3. **控えファイルの置き換え失敗で前回の控えを壊す** — 直接上書きをやめ、
+   `Files.move` に統一。失敗時は既存の控えを残す
+4. **古いバックアップで新しい設定を上書きする** — `presentFields` を追加し、
+   実際に存在した項目だけを反映するよう修正
+5. **復元が途中で失敗すると DB だけ書き換わる** — DB 更新をトランザクション化し、
+   成功後に設定を反映するよう修正
 
 ### 確認できなかったこと
 
-- **実クラウド（Google）経由のバックアップ・復元は未検証。**
-  実機の `bmgr backupnow` は `Transport error` を返した。
-  debug ビルドは Auto Backup の対象外であるため、リリースビルドで
-  Google アカウントのバックアップが走る環境でないと確認できない
-- LocalTransport に切り替えても `Transport error` だった（同上の理由）
+- **Google アカウントの実クラウドを経由した復元は未検証。**
+  実機の `bmgr` は Google のトランスポートで成功したが、これは端末内の
+  バックアップトランスポートに対する操作であり、クラウドへの同期そのものは確認していない
+- **debug ビルドは Auto Backup の対象外。** `bmgr backupnow` が `Transport error` を
+  返すため、検証はリリース署名ビルドで行う必要がある
 
 ## 制約
 

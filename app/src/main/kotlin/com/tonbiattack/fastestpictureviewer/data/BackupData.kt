@@ -86,8 +86,18 @@ data class BackupSettings(
     /** 「見つからない画像」の通知を表示するか (Issue #151) */
     val showStaleMediaNotice: Boolean = true,
     /** スライドショーの表示間隔（秒）(Issue #151) */
-    val slideshowIntervalSec: Int = 3
-)
+    val slideshowIntervalSec: Int = 3,
+    /** バックアップに実際に存在した設定。古い JSON では欠けた値を上書きしない */
+    val presentFields: Set<String> = ALL_FIELDS
+) {
+    companion object {
+        val ALL_FIELDS = setOf(
+            "folderColumns", "sortMode", "imageColumnsPortrait", "imageColumnsLandscape",
+            "showResumeCard", "imageSortMode", "folderSortOverrides",
+            "restoreScrollPosition", "showStaleMediaNotice", "slideshowIntervalSec"
+        )
+    }
+}
 
 /** 取り込み前の確認用の件数 */
 data class BackupSummary(

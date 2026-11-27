@@ -217,7 +217,9 @@ fun AppNavHost(
             val viewModel: BackupViewModel = viewModel(factory = factory)
             BackupScreen(
                 viewModel = viewModel,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                // 自動バックアップの控えの状態を表示する (Issue #151)
+                autoBackupStore = container.autoBackup
             )
         }
 

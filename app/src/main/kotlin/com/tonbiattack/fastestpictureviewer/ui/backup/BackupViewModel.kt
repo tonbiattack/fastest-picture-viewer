@@ -85,6 +85,26 @@ class BackupViewModel(
     fun suggestedFileName(): String = backupRepository.defaultFileName()
 
     /**
+     * 自動バックアップ（OS 経由）の控えの状態 (Issue #151)。
+     *
+     * 実クラウドの実行時刻は OS が決めるため、アプリが保証できるのは
+     * 「控えがいつ作られたか」まで。null なら表示しない。
+     */
+    fun autoBackupLabel(autoBackupStore: com.tonbiattack.fastestpictureviewer.data.AutoBackupStore?): String? {
+        val store = autoBackupStore ?: return null
+        if (!store.exists()) return "自動バックアップの控え: まだ作成されていません"
+        val size = store.sizeBytes()
+        val savedAt = runCatching {
+            val formatter = java.text.SimpleDateFormat(
+                LAST_EXPORTED_PATTERN,
+                java.util.Locale.getDefault()
+            )
+            formatter.format(java.util.Date(store.file.lastModified()))
+        }.getOrNull()
+        return "自動バックアップの控え: ${size / 1024} KB（${savedAt ?: "不明"} 更新）"
+    }
+
+    /**
      * 最終書き出し日時の表示 (Issue #108)。
      *
      * 一度も書き出していない場合は「まだ書き出していません」と明示する。

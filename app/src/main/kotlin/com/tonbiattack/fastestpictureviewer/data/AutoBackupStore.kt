@@ -67,10 +67,18 @@ class AutoBackupStore(private val filesDir: File) {
         val temp = File(dir, "$FILE_NAME.tmp")
         return try {
             FileOutputStreamSafe.write(temp, bytes)
-            if (!temp.renameTo(target)) {
-                // rename できない環境では直接書く。失敗しても前回の控えは残る
-                FileOutputStreamSafe.write(target, bytes)
+            // File.renameTo は既存ファイルを置き換えられない環境があるため Files.move を使う
+            try {
+                java.nio.file.Files.move(
+                    temp.toPath(),
+                    target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING
+                )
+            } catch (e: Exception) {
+                // 直接上書きすると途中の失敗で前回の正常な控えまで壊れる。
+                // 置き換えに失敗した場合は既存ファイルを維持して失敗を返す
                 temp.delete()
+                return WriteResult.Failed(e)
             }
             WriteResult.Saved(bytes.size)
         } catch (e: IOException) {

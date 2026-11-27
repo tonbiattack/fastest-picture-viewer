@@ -1,5 +1,6 @@
 package com.tonbiattack.fastestpictureviewer.data
 
+import androidx.room.withTransaction
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -39,12 +40,12 @@ class BackupRepository(
     private val excludedFolderDao = db.excludedFolderDao()
 
     /** 現在のデータをバックアップ用にまとめる */
-    override suspend fun collect(appVersionName: String): BackupData {
+    override suspend fun collect(appVersionName: String): BackupData = db.withTransaction {
         val tags = tagDao.getAllTags()
         val nameById = tags.associate { it.tagId to it.normalizedName }
         val links = tagDao.getAllFolderTags()
 
-        return BackupData(
+        BackupData(
             version = BackupData.CURRENT_VERSION,
             exportedAt = isoNow(),
             appVersionName = appVersionName,
@@ -69,6 +70,7 @@ class BackupRepository(
      * 既存データは消さず、足りないものだけを追加する。
      */
     override suspend fun restore(data: BackupData): RestoreResult {
+        val result = db.withTransaction {
         // 1. タグ: 正規化名で照合し、無ければ作る
         val existing = tagDao.getAllTags().associateBy { it.normalizedName }
         val idByNormalized = existing.mapValues { it.value.tagId }.toMutableMap()
@@ -156,10 +158,7 @@ class BackupRepository(
             )
         }
 
-        // 6. 表示設定
-        settingsAccess.apply(data.settings)
-
-        return RestoreResult(
+        RestoreResult(
             tagsCreated = created,
             tagsReused = reused,
             folderTagsAdded = folderTagsAdded,
@@ -167,8 +166,12 @@ class BackupRepository(
             favoriteImagesAdded = imageFavoritesAdded,
             excludedFoldersAdded = excludedAdded,
             skippedFolderTags = skipped,
-            settingsApplied = true
+            settingsApplied = false
         )
+        }
+        // DB 側の追加がすべて成功してから設定を反映する。
+        settingsAccess.apply(data.settings)
+        return result.copy(settingsApplied = true)
     }
 
     /** 既定のファイル名。例: pictobi-backup-20261114-1230.json */

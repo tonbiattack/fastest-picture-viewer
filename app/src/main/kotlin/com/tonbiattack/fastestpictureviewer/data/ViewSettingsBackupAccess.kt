@@ -37,35 +37,43 @@ class ViewSettingsBackupAccess(
     )
 
     override suspend fun apply(settings: BackupSettings) {
-        folderSettings.setColumnCount(settings.folderColumns)
-        runCatching { FolderSortMode.valueOf(settings.sortMode) }
-            .getOrNull()
-            ?.let { folderSettings.setSortMode(it) }
-        folderSettings.setShowResumeCard(settings.showResumeCard)
-        folderSettings.setShowStaleMediaNotice(settings.showStaleMediaNotice)
-
-        imageSettings.restoreColumnCounts(settings.imageColumnsPortrait, settings.imageColumnsLandscape)
-
-        // 未知の値は無視し、現在の設定を変えない (Issue #151)
-        runCatching { ImageSortMode.valueOf(settings.imageSortMode) }
-            .getOrNull()
-            ?.let { imageSettings.setSortMode(it) }
-        imageSettings.setRestoreScrollPosition(settings.restoreScrollPosition)
-
-        // フォルダ単位の上書きは、今回のバックアップ内容で置き換える。
-        // 消えたフォルダの指定が残ると混乱するため、いったん全解除してから入れ直す
-        imageSettings.folderSortOverrides.value.keys.toList().forEach { key ->
-            imageSettings.setFolderSortMode(key, null)
+        val fields = settings.presentFields
+        if ("folderColumns" in fields) folderSettings.setColumnCount(settings.folderColumns)
+        if ("sortMode" in fields) {
+            runCatching { FolderSortMode.valueOf(settings.sortMode) }
+                .getOrNull()?.let { folderSettings.setSortMode(it) }
         }
-        settings.folderSortOverrides.forEach { (folderKey, modeName) ->
-            runCatching { ImageSortMode.valueOf(modeName) }
-                .getOrNull()
-                ?.let { imageSettings.setFolderSortMode(folderKey, it) }
+        if ("showResumeCard" in fields) folderSettings.setShowResumeCard(settings.showResumeCard)
+        if ("showStaleMediaNotice" in fields) {
+            folderSettings.setShowStaleMediaNotice(settings.showStaleMediaNotice)
         }
-
-        slideshowSettings?.let { slideshow ->
-            // 想定外の値は fromSeconds が既定値へ戻す
-            slideshow.setInterval(SlideshowInterval.fromSeconds(settings.slideshowIntervalSec))
+        if ("imageColumnsPortrait" in fields || "imageColumnsLandscape" in fields) {
+            imageSettings.restoreColumnCounts(
+                if ("imageColumnsPortrait" in fields) settings.imageColumnsPortrait
+                else imageSettings.portraitColumnCount.value,
+                if ("imageColumnsLandscape" in fields) settings.imageColumnsLandscape
+                else imageSettings.landscapeColumnCount.value
+            )
+        }
+        if ("imageSortMode" in fields) {
+            runCatching { ImageSortMode.valueOf(settings.imageSortMode) }
+                .getOrNull()?.let { imageSettings.setSortMode(it) }
+        }
+        if ("restoreScrollPosition" in fields) {
+            imageSettings.setRestoreScrollPosition(settings.restoreScrollPosition)
+        }
+        // 存在するフォルダ設定は保持し、控えにある指定だけ追加・更新する。
+        if ("folderSortOverrides" in fields) {
+            settings.folderSortOverrides.forEach { (folderKey, modeName) ->
+                runCatching { ImageSortMode.valueOf(modeName) }
+                    .getOrNull()?.let { imageSettings.setFolderSortMode(folderKey, it) }
+            }
+        }
+        if ("slideshowIntervalSec" in fields) {
+            slideshowSettings?.let { slideshow ->
+                SlideshowInterval.ALL.firstOrNull { it.seconds == settings.slideshowIntervalSec }
+                    ?.let { slideshow.setInterval(it) }
+            }
         }
     }
 }
