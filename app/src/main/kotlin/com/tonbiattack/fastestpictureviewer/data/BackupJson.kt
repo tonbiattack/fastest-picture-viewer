@@ -120,7 +120,10 @@ object BackupJson {
             folderSortOverrides = readStringMap(settingsJson?.optJSONObject("folderSortOverrides")),
             restoreScrollPosition = settingsJson?.optBoolean("restoreScrollPosition", true) ?: true,
             showStaleMediaNotice = settingsJson?.optBoolean("showStaleMediaNotice", true) ?: true,
-            slideshowIntervalSec = settingsJson?.optInt("slideshowIntervalSec", 3) ?: 3
+            slideshowIntervalSec = settingsJson?.optInt("slideshowIntervalSec", 3) ?: 3,
+            presentFields = BackupSettings.ALL_FIELDS.filterTo(mutableSetOf()) { name ->
+                settingsJson?.has(name) == true && !settingsJson.isNull(name)
+            }
         )
 
         return BackupData(

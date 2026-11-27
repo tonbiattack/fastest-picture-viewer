@@ -148,4 +148,53 @@ class BackupJsonTest {
         val json = BackupJson.encode(sample())
         assertTrue(json.contains("旅行"))
     }
+
+    // ---- 古いバックアップとの互換性 (Issue #151) ----
+
+    @Test
+    fun `古い形式のJSONは欠けた設定を既定値で補う`() {
+        // Issue #74 当時の形式。新しい設定項目が無い
+        val legacy = """
+            {
+              "version": 1,
+              "exportedAt": "2026-11-01T00:00:00Z",
+              "app": { "packageName": "com.tonbiattack.fastestpictureviewer", "versionName": "0.1.0" },
+              "tags": [],
+              "folderTags": [],
+              "favoriteFolders": [],
+              "favoriteImages": [],
+              "excludedFolders": [],
+              "settings": {
+                "folderColumns": 3,
+                "sortMode": "RECENT",
+                "imageColumnsPortrait": 4,
+                "imageColumnsLandscape": 5,
+                "showResumeCard": false
+              }
+            }
+        """.trimIndent()
+
+        val data = BackupJson.decode(legacy)
+
+        assertEquals(3, data.settings.folderColumns)
+        assertEquals("RECENT", data.settings.sortMode)
+        assertEquals(4, data.settings.imageColumnsPortrait)
+        assertEquals(5, data.settings.imageColumnsLandscape)
+        // 新しい項目は既定値
+        assertEquals("NAME", data.settings.imageSortMode)
+        assertTrue(data.settings.folderSortOverrides.isEmpty())
+        assertTrue(data.settings.restoreScrollPosition)
+        assertTrue(data.settings.showStaleMediaNotice)
+        assertEquals(3, data.settings.slideshowIntervalSec)
+        // 実際に存在した項目だけを記録する
+        assertTrue(data.settings.presentFields.contains("folderColumns"))
+        assertTrue("存在しない項目を上書き対象にしている", "imageSortMode" !in data.settings.presentFields)
+    }
+
+    @Test
+    fun `新しい形式のJSONは全項目を記録する`() {
+        val data = BackupJson.decode(BackupJson.encode(sample()))
+
+        assertEquals(BackupSettings.ALL_FIELDS, data.settings.presentFields)
+    }
 }

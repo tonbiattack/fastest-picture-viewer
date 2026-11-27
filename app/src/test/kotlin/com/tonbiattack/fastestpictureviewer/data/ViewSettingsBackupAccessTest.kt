@@ -8,6 +8,7 @@ import com.tonbiattack.fastestpictureviewer.ui.folder.SharedPreferencesFolderVie
 import com.tonbiattack.fastestpictureviewer.ui.grid.SharedPreferencesImageGridViewSettings
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -60,5 +61,80 @@ class ViewSettingsBackupAccessTest {
         assertEquals(4, grid.columnCount.value)
         grid.setLandscape(true)
         assertEquals(6, grid.columnCount.value)
+    }
+
+    // ---- 古いバックアップで新しい設定を壊さない (Issue #151) ----
+
+    @Test
+    fun `古いバックアップに無い設定は現在の値を保つ`() = runTest {
+        val folder = SharedPreferencesFolderViewSettings(context)
+        val grid = SharedPreferencesImageGridViewSettings(context)
+
+        // 現在の設定（バックアップより新しい項目）
+        grid.setSortMode(com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode.DATE_OLDEST)
+        grid.setRestoreScrollPosition(false)
+        grid.setFolderSortMode("v:Pictures/A/", com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode.DATE_NEWEST)
+        folder.setShowStaleMediaNotice(false)
+
+        // 古い形式のバックアップ（新しい項目が無い）
+        val legacy = BackupSettings(
+            folderColumns = 3,
+            sortMode = "RECENT",
+            imageColumnsPortrait = 4,
+            imageColumnsLandscape = 5,
+            showResumeCard = false,
+            presentFields = setOf(
+                "folderColumns", "sortMode",
+                "imageColumnsPortrait", "imageColumnsLandscape", "showResumeCard"
+            )
+        )
+        ViewSettingsBackupAccess(folder, grid).apply(legacy)
+
+        // 古い項目は反映される
+        assertEquals(3, folder.columnCount.value)
+        assertEquals(4, grid.portraitColumnCount.value)
+        // 新しい項目は壊されない
+        assertEquals(
+            com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode.DATE_OLDEST,
+            grid.sortMode.value
+        )
+        assertFalse(grid.restoreScrollPosition.value)
+        assertFalse(folder.showStaleMediaNotice.value)
+        assertEquals(
+            com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode.DATE_NEWEST,
+            grid.folderSortOverrides.value["v:Pictures/A/"]
+        )
+    }
+
+    @Test
+    fun `新しいバックアップは既存の並び順を上書きする`() = runTest {
+        val folder = SharedPreferencesFolderViewSettings(context)
+        val grid = SharedPreferencesImageGridViewSettings(context)
+        grid.setFolderSortMode("v:Pictures/A/", com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode.DATE_NEWEST)
+
+        val settings = BackupSettings(
+            folderColumns = 2,
+            sortMode = "LATEST",
+            imageColumnsPortrait = 3,
+            imageColumnsLandscape = 3,
+            showResumeCard = true,
+            imageSortMode = "DATE_OLDEST",
+            folderSortOverrides = mapOf("v:Pictures/B/" to "NAME"),
+            restoreScrollPosition = false,
+            showStaleMediaNotice = false,
+            slideshowIntervalSec = 10
+        )
+        ViewSettingsBackupAccess(folder, grid).apply(settings)
+
+        assertEquals(
+            com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode.DATE_OLDEST,
+            grid.sortMode.value
+        )
+        assertEquals(
+            com.tonbiattack.fastestpictureviewer.core.util.ImageSortMode.NAME,
+            grid.folderSortOverrides.value["v:Pictures/B/"]
+        )
+        assertFalse(grid.restoreScrollPosition.value)
+        assertFalse(folder.showStaleMediaNotice.value)
     }
 }

@@ -116,6 +116,8 @@ internal fun RestoreConfirmDialog(
 fun BackupScreen(
     viewModel: BackupViewModel,
     onBack: () -> Unit,
+    /** OS の自動バックアップ用の控えの状態表示に使う (Issue #151) */
+    autoBackupStore: com.tonbiattack.fastestpictureviewer.data.AutoBackupStore? = null,
     modifier: Modifier = Modifier
 ) {
     val state = viewModel.uiState.collectAsStateWithLifecycle().value
@@ -208,6 +210,17 @@ fun BackupScreen(
                 // 最終書き出し日時 (Issue #108)。書き出し忘れに気づけるようにする
                 viewModel.lastExportedLabel()?.let { label ->
                     Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                // OS の自動バックアップ用の控えの状態 (Issue #151)。
+                // 実行時刻は OS が決めるため、控えの更新日時だけを示す
+                viewModel.autoBackupLabel(autoBackupStore)?.let { label ->
+                    Spacer(Modifier.height(4.dp))
                     Text(
                         text = label,
                         style = MaterialTheme.typography.bodySmall,

@@ -9,6 +9,7 @@ import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.tonbiattack.fastestpictureviewer.data.AppDatabase
 import com.tonbiattack.fastestpictureviewer.data.AutoBackupStore
+import com.tonbiattack.fastestpictureviewer.data.AutoBackupInstallState
 import com.tonbiattack.fastestpictureviewer.data.AutoBackupCoordinator
 import com.tonbiattack.fastestpictureviewer.data.BackupRepository
 import com.tonbiattack.fastestpictureviewer.data.BackupStatusStore
@@ -59,11 +60,12 @@ class AppContainer(
     private val appScope: kotlinx.coroutines.CoroutineScope
 ) {
 
-    /** DB を開く前に既存インストールを判定する。案内は復元を自動実行しない。 */
+    /** DB の有無は作成前に記録し、新規復元と既存端末の更新を区別する。 */
+    private val databaseExistedBeforeOpen = context.getDatabasePath(AppDatabase.DATABASE_NAME).exists()
+
+    /** DB を開く前に既存インストールを判定する。 */
     val initialBackupPromptStore = InitialBackupPromptStore(context).also {
-        it.initializeForInstall(
-            databaseExistsBeforeOpen = context.getDatabasePath(AppDatabase.DATABASE_NAME).exists()
-        )
+        it.initializeForInstall(databaseExistsBeforeOpen = databaseExistedBeforeOpen)
     }
 
     val database: AppDatabase = AppDatabase.build(context).also {
@@ -118,7 +120,14 @@ class AppContainer(
     val autoBackupCoordinator: AutoBackupCoordinator = AutoBackupCoordinator(
         store = autoBackup,
         backupRepository = backupRepository,
-        appVersionName = { BuildConfig.VERSION_NAME }
+        appVersionName = { BuildConfig.VERSION_NAME },
+        installState = AutoBackupInstallState(context.noBackupFilesDir.resolve("auto_backup_initialized")),
+        databaseExistedBeforeOpen = databaseExistedBeforeOpen,
+        onSaved = { result ->
+            if (result !is AutoBackupStore.WriteResult.Saved) {
+                android.util.Log.e("AutoBackup", "自動バックアップの控えを更新できませんでした")
+            }
+        }
     )
 
     val repository: GalleryRepository =
@@ -201,10 +210,29 @@ class AppContainer(
      */
     fun restoreFromAutoBackupIfNeeded(scope: kotlinx.coroutines.CoroutineScope) {
         scope.launch(Dispatchers.IO) {
-            val restored = runCatching { autoBackupCoordinator.restoreIfNeeded() }
-                .getOrDefault(false)
-            if (restored) {
-                android.util.Log.i("FPV-Perf", "auto backup restored")
+            val restored = autoBackupCoordinator.initialize()
+            if (restored) android.util.Log.i("FPV-Perf", "auto backup restored")
+        }
+    }
+
+    /** 手動復元を含む DB 変更と各設定変更を、控えの更新につなぐ。 */
+    fun observeAutoBackupChanges(scope: kotlinx.coroutines.CoroutineScope) {
+        database.invalidationTracker.addObserver(object : androidx.room.InvalidationTracker.Observer(
+            "tags", "folder_tags", "favorite_folders", "favorite_images", "excluded_folders"
+        ) {
+            override fun onInvalidated(tables: Set<String>) {
+                autoBackupCoordinator.scheduleSave(scope)
+            }
+        })
+        listOf(
+            folderViewSettings.columnCount, folderViewSettings.sortMode,
+            folderViewSettings.showResumeCard, folderViewSettings.showStaleMediaNotice,
+            imageGridViewSettings.portraitColumnCount, imageGridViewSettings.landscapeColumnCount,
+            imageGridViewSettings.sortMode, imageGridViewSettings.folderSortOverrides,
+            imageGridViewSettings.restoreScrollPosition, slideshowSettings.interval
+        ).forEach { flow ->
+            scope.launch(Dispatchers.IO) {
+                flow.collect { autoBackupCoordinator.scheduleSave(scope) }
             }
         }
     }
@@ -256,15 +284,18 @@ class FastestPictureViewerApplication : Application(), ImageLoaderFactory {
      */
     fun initializeContainer() {
         container = try {
-            AppContainer(this, imageLoader, appScope).also { created ->
-                // Auto Backup から復元された直後なら取り込む (Issue #151)。
-                // DB が空のときだけ動くため、通常の起動では何もしない
-                created.restoreFromAutoBackupIfNeeded(appScope)
-            }
+            AppContainer(this, imageLoader, appScope)
         } catch (t: Exception) {
             startupError = t
             android.util.Log.e("FPV-Perf", "AppContainer initialization failed", t)
             null
+        }
+        // Auto Backup の初期化は、コンテナ生成に成功した時点で必ず開始する (Issue #151)。
+        // 画面や ViewModel の生成に依存させない。
+        val created = container ?: return
+        appScope.launch(Dispatchers.IO) {
+            created.restoreFromAutoBackupIfNeeded(appScope)
+            created.observeAutoBackupChanges(appScope)
         }
     }
 

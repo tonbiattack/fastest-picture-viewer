@@ -256,6 +256,131 @@ class AutoBackupCoordinatorTest {
         assertTrue("控えが大きすぎる: ${store.sizeBytes()} bytes", store.sizeBytes() < 64 * 1024)
     }
 
+    // ---- 初回移行と復元済み判定 (Issue #151) ----
+
+    @Test
+    fun `既存端末では復元せず初回の控えを作る`() = runTest {
+        // 旧バージョンからの更新。DB は既にある
+        val source = FakeBackupSource(data = backupWithTag("既存"))
+        val state = AutoBackupInstallState(File(filesDir, "state"))
+        val coordinator = AutoBackupCoordinator(
+            store = store,
+            backupRepository = source,
+            appVersionName = { "0.6.1" },
+            debounceMs = 0,
+            installState = state,
+            databaseExistedBeforeOpen = true
+        )
+
+        val restored = coordinator.initialize()
+
+        assertFalse("既存端末で復元した", restored)
+        assertEquals(0, source.restoreCount)
+        assertTrue("初回の控えが作られていない", store.exists())
+        assertTrue(state.isInitialized())
+    }
+
+    @Test
+    fun `新規端末で控えがあれば復元する`() = runTest {
+        store.save(BackupJson.encode(backupWithTag("復元")))
+
+        val source = FakeBackupSource(data = emptyBackup())
+        val state = AutoBackupInstallState(File(filesDir, "state"))
+        val coordinator = AutoBackupCoordinator(
+            store = store,
+            backupRepository = source,
+            appVersionName = { "0.6.1" },
+            debounceMs = 0,
+            installState = state,
+            databaseExistedBeforeOpen = false
+        )
+
+        val restored = coordinator.initialize()
+
+        assertTrue(restored)
+        assertEquals(1, source.restoreCount)
+        assertTrue(state.isInitialized())
+    }
+
+    @Test
+    fun `復元が済んだ端末では二度目に復元しない`() = runTest {
+        store.save(BackupJson.encode(backupWithTag("控え")))
+
+        val source = FakeBackupSource(data = emptyBackup())
+        val state = AutoBackupInstallState(File(filesDir, "state"))
+        val first = AutoBackupCoordinator(
+            store, source, { "0.6.1" }, debounceMs = 0,
+            installState = state, databaseExistedBeforeOpen = false
+        )
+        first.initialize()
+
+        // 2 回目の起動（DB は前回の控えで作られている）
+        val second = AutoBackupCoordinator(
+            store, source, { "0.6.1" }, debounceMs = 0,
+            installState = state, databaseExistedBeforeOpen = true
+        )
+        assertFalse("二度目も復元した", second.initialize())
+    }
+
+    @Test
+    fun `控えが壊れているときは空データで上書きしない`() = runTest {
+        store.save("{ 壊れた JSON")
+
+        val source = FakeBackupSource(data = emptyBackup())
+        val state = AutoBackupInstallState(File(filesDir, "state"))
+        val coordinator = AutoBackupCoordinator(
+            store, source, { "0.6.1" }, debounceMs = 0,
+            installState = state, databaseExistedBeforeOpen = false
+        )
+
+        assertFalse(coordinator.initialize())
+        // 壊れた控えを残し、状態も確定しない（次回やり直せる）
+        assertEquals("{ 壊れた JSON", store.load())
+        assertFalse(state.isInitialized())
+    }
+
+    @Test
+    fun `復元に失敗したら状態を確定せず次回に再試行する`() = runTest {
+        store.save(BackupJson.encode(backupWithTag("再試行")))
+
+        val failure = FakeBackupSource(data = emptyBackup(), failRestore = true)
+        val state = AutoBackupInstallState(File(filesDir, "state"))
+        AutoBackupCoordinator(
+            store, failure, { "0.6.1" }, debounceMs = 0,
+            installState = state, databaseExistedBeforeOpen = false
+        ).initialize()
+
+        assertFalse("失敗したのに復元済みになった", state.isInitialized())
+
+        // 次回起動（DB が空のまま）で成功する
+        val success = FakeBackupSource(data = emptyBackup())
+        val retried = AutoBackupCoordinator(
+            store, success, { "0.6.1" }, debounceMs = 0,
+            installState = state, databaseExistedBeforeOpen = false
+        )
+        assertTrue("再試行されていない", retried.initialize())
+        assertTrue(state.isInitialized())
+    }
+
+    @Test
+    fun `初期化前の保存は控えを書き換えない`() = runTest {
+        val state = AutoBackupInstallState(File(filesDir, "state"))
+        val coordinator = AutoBackupCoordinator(
+            store,
+            FakeBackupSource(data = backupWithTag("x")),
+            { "0.6.1" },
+            debounceMs = 0,
+            installState = state,
+            databaseExistedBeforeOpen = true
+        )
+
+        // initialize 前に saveNow しても、破損控えを上書きしない
+        val result = coordinator.saveNow()
+
+        assertTrue(result is AutoBackupStore.WriteResult.Failed)
+        assertFalse(store.exists())
+    }
+
     private companion object {
         fun emptyBackup(): BackupData = BackupData(
             version = BackupData.CURRENT_VERSION,
